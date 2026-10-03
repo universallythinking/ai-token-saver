@@ -9,7 +9,7 @@ from aiohttp import ClientSession, ClientTimeout, web
 
 from .config import Config
 from .dashboard import start_dashboard_background
-from .stats import init_store
+from .stats import init_store, resolve_stats_path
 from .stripper import estimate_tokens, try_strip_bytes
 
 log = logging.getLogger("aiproxy.bridge")
@@ -194,10 +194,7 @@ def _banner(config: Config) -> str:
 
 async def run_openai_bridge(config: Config) -> None:
     root = Path(__file__).resolve().parent.parent
-    stats_path = Path(config.stats_path)
-    if not stats_path.is_absolute():
-        stats_path = root / stats_path
-    store = init_store(stats_path)
+    store = init_store(resolve_stats_path(config.stats_path, base=root))
     start_dashboard_background(config, store)
 
     app = create_app(config, store)

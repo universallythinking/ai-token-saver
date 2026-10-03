@@ -4,6 +4,17 @@ Local proxy that sits between **Cursor** / **Claude Code** and the model APIs. I
 
 **Dashboard:** [http://127.0.0.1:8081/](http://127.0.0.1:8081/) — tokens & characters requested, forwarded, and saved.
 
+<table>
+  <tr>
+    <td align="center"><img src="dark-dashboard.png" alt="Dark dashboard" /></td>
+    <td align="center"><img src="light-dashboard.png" alt="Light dashboard" /></td>
+  </tr>
+  <tr>
+    <td align="center">Dark</td>
+    <td align="center">Light</td>
+  </tr>
+</table>
+
 > **Python note:** On macOS/Linux use **`python3`** to create the venv. After that, always run aiproxy with **`.venv/bin/python`** (not system `python` / `python3`) so deps resolve. Printable setup snippets already bake this in.
 >
 > **Windows:** see [README-Windows.md](README-Windows.md) (PowerShell paths, `.venv\Scripts\python.exe`, CA trust).
@@ -198,7 +209,7 @@ Configured in `config.yaml` under `strip:`
 | Proxy | `127.0.0.1:8080` |
 | Dashboard | `127.0.0.1:8081` |
 | Config | `config.yaml` |
-| Stats | `logs/stats.json` |
+| Stats (persisted across launches) | `logs/stats.json` |
 | Body dumps | `logs/` |
 | mitmproxy CA | `~/.mitmproxy/mitmproxy-ca-cert.pem` |
 

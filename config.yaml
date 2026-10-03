@@ -4,6 +4,7 @@ listen_host: "127.0.0.1"
 listen_port: 8080
 # Live savings dashboard (requested / forwarded / saved tok+chars)
 dashboard_port: 8081
+# Persisted across launches (totals, recent requests, chart buckets)
 stats_path: "logs/stats.json"
 
 # mitm      = HTTPS forward proxy for Cursor default models (streaming fixed)

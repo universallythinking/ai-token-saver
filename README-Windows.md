@@ -244,7 +244,7 @@ If chats send but never reply, turn MITM off (remove `http.proxy*`) and use the 
 | Proxy | `127.0.0.1:8080` |
 | Dashboard | `127.0.0.1:8081` |
 | Config | `config.yaml` |
-| Stats | `logs\stats.json` |
+| Stats (persisted across launches) | `logs\stats.json` |
 | Body dumps | `logs\` |
 | mitmproxy CA | `%USERPROFILE%\.mitmproxy\mitmproxy-ca-cert.pem` |
 | Cursor settings | `%APPDATA%\Cursor\User\settings.json` |

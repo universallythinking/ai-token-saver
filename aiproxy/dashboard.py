@@ -837,8 +837,8 @@ function applyView(d) {
   const recent = filterRecent(d.recent || [], now);
   const tAll = d.totals || {};
 
-  // Prefer window aggregates when we have series; fall back to lifetime totals for "All"
-  const use = (windowMins === 0 || !series.length) ? {
+  // "All" uses lifetime totals (persisted across launches). Time windows use series only.
+  const use = windowMins === 0 ? {
     tokens_in: tAll.tokens_in || 0,
     tokens_out: tAll.tokens_out || 0,
     tokens_saved: tAll.tokens_saved || 0,
@@ -857,13 +857,16 @@ function applyView(d) {
   document.getElementById("token-pct").textContent = tokPct + "% of requested tokens removed";
   document.getElementById("char-pct").textContent = charPct + "% of requested characters removed";
   document.getElementById("tokens-in").textContent = fmtFull(use.tokens_in) + " tok";
-  document.getElementById("chars-in").textContent = fmtFull(use.chars_in) + " chars · " + fmtFull(use.n) + " buckets";
+  document.getElementById("chars-in").textContent = fmtFull(use.chars_in) + " chars · " + fmtFull(use.n) + (windowMins === 0 ? " req" : " buckets");
   document.getElementById("tokens-out").textContent = fmtFull(use.tokens_out) + " tok";
   document.getElementById("chars-out").textContent = fmtFull(use.chars_out) + " chars · " + fmtFull(use.stripped) + " stripped";
 
   const mins = Math.floor((d.uptime_s||0)/60);
+  const lifeDays = Math.floor((d.lifetime_s||0) / 86400);
+  const lifeNote = lifeDays > 0 ? ` · since ${lifeDays}d` : "";
   document.getElementById("meta").innerHTML =
-    `<span class="live"></span>up ${mins}m · window ${WINDOWS[windowMins]} · sync ${fmt(tAll.sync_chars||0)} chars · ignored ${tAll.ignored||0}`;
+    `<span class="live"></span>up ${mins}m${lifeNote} · window ${WINDOWS[windowMins]} · sync ${fmt(tAll.sync_chars||0)} chars · ignored ${tAll.ignored||0}`
+    + (d.persisted ? " · cached" : "");
   document.getElementById("line-hint").textContent = `${WINDOWS[windowMins]} · ${bucketMins}m buckets`;
   document.getElementById("rate-hint").textContent = `${series.length} points`;
   document.getElementById("table-hint").textContent = `${recent.length} in window`;

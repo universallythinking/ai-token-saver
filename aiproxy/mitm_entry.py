@@ -13,18 +13,14 @@ if str(_ROOT) not in sys.path:
 from aiproxy.addon import make_addons  # noqa: E402
 from aiproxy.config import Config  # noqa: E402
 from aiproxy.dashboard import start_dashboard_background  # noqa: E402
-from aiproxy.stats import init_store  # noqa: E402
+from aiproxy.stats import init_store, resolve_stats_path  # noqa: E402
 
 _cfg_path = os.environ.get("AIPROXY_CONFIG") or str(_ROOT / "config.yaml")
 _config = Config.load(_cfg_path)
 if os.environ.get("AIPROXY_DRY_RUN") == "1":
     _config.strip.dry_run = True
 
-_stats_path = Path(_config.stats_path)
-if not _stats_path.is_absolute():
-    _stats_path = _ROOT / _stats_path
-
-_store = init_store(_stats_path)
+_store = init_store(resolve_stats_path(_config.stats_path, base=_ROOT))
 start_dashboard_background(_config, _store)
 
 addons = make_addons(_config, store=_store)

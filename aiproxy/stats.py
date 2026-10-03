@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger("aiproxy.stats")
+
+# Keep minute buckets long enough that charts survive overnight / weekend gaps.
+_BUCKET_RETENTION_S = 14 * 24 * 60 * 60
+_RECENT_PERSIST = 200
 
 
 @dataclass
@@ -31,33 +39,57 @@ class RequestEvent:
         return max(0, self.tokens_in - self.tokens_out)
 
 
+def _empty_totals() -> dict[str, int]:
+    return {
+        "requests": 0,
+        "stripped": 0,
+        "unchanged": 0,
+        "passthrough": 0,
+        "ignored": 0,
+        "sync": 0,
+        "sync_chars": 0,
+        "blocked": 0,
+        "chars_in": 0,
+        "chars_out": 0,
+        "chars_saved": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "tokens_saved": 0,
+    }
+
+
+def _empty_bucket() -> dict[str, int]:
+    return {
+        "chars_in": 0,
+        "chars_out": 0,
+        "chars_saved": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "tokens_saved": 0,
+        "n": 0,
+        "stripped": 0,
+    }
+
+
 class StatsStore:
-    """Thread-safe cumulative + recent request stats for the dashboard."""
+    """Thread-safe cumulative + recent request stats for the dashboard.
+
+    Totals, recent events, and minute buckets are persisted to disk so they
+    survive process restarts.
+    """
 
     def __init__(self, persist_path: str | Path | None = None, history_limit: int = 500):
         self._lock = threading.Lock()
-        self.persist_path = Path(persist_path) if persist_path else None
+        self.persist_path = Path(persist_path).expanduser().resolve() if persist_path else None
         self.history_limit = history_limit
-        self.started_at = time.time()
-        self.totals = {
-            "requests": 0,
-            "stripped": 0,
-            "unchanged": 0,
-            "passthrough": 0,
-            "ignored": 0,
-            "sync": 0,
-            "sync_chars": 0,
-            "blocked": 0,
-            "chars_in": 0,
-            "chars_out": 0,
-            "chars_saved": 0,
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "tokens_saved": 0,
-        }
+        # Lifetime clock (preserved across launches) + this process session.
+        now = time.time()
+        self.first_started_at = now
+        self.started_at = now
+        self.totals = _empty_totals()
         self.recent: deque[RequestEvent] = deque(maxlen=history_limit)
-        # Per-minute buckets for sparkline: {minute_epoch: {chars_in, chars_saved, tokens_in, tokens_saved, n}}
         self.buckets: dict[int, dict[str, int]] = {}
+        self._loaded = False
         if self.persist_path and self.persist_path.exists():
             self._load()
 
@@ -75,25 +107,12 @@ class StatsStore:
             self.totals[kind] = self.totals.get(kind, 0) + 1
             if kind == "passthrough":
                 self.totals["requests"] += 1
-                # Count bytes toward dashboard totals (previously omitted → always 0).
                 self.totals["chars_in"] += chars_in
                 self.totals["chars_out"] += chars_in
                 self.totals["tokens_in"] += tokens
                 self.totals["tokens_out"] += tokens
                 minute = int(time.time() // 60) * 60
-                b = self.buckets.setdefault(
-                    minute,
-                    {
-                        "chars_in": 0,
-                        "chars_out": 0,
-                        "chars_saved": 0,
-                        "tokens_in": 0,
-                        "tokens_out": 0,
-                        "tokens_saved": 0,
-                        "n": 0,
-                        "stripped": 0,
-                    },
-                )
+                b = self.buckets.setdefault(minute, _empty_bucket())
                 b["chars_in"] += chars_in
                 b["chars_out"] += chars_in
                 b["tokens_in"] += tokens
@@ -114,6 +133,7 @@ class StatsStore:
                             dry_run=False,
                         )
                     )
+                self._prune_buckets_unlocked(minute)
             self._persist_unlocked()
 
     def record_ignored(self) -> None:
@@ -173,19 +193,7 @@ class StatsStore:
             self.totals["tokens_saved"] += ev.tokens_saved
 
             minute = int(ev.ts // 60) * 60
-            b = self.buckets.setdefault(
-                minute,
-                {
-                    "chars_in": 0,
-                    "chars_out": 0,
-                    "chars_saved": 0,
-                    "tokens_in": 0,
-                    "tokens_out": 0,
-                    "tokens_saved": 0,
-                    "n": 0,
-                    "stripped": 0,
-                },
-            )
+            b = self.buckets.setdefault(minute, _empty_bucket())
             b["chars_in"] += chars_in
             b["chars_out"] += chars_out
             b["chars_saved"] += ev.chars_saved
@@ -196,11 +204,7 @@ class StatsStore:
             if stripped:
                 b["stripped"] += 1
 
-            # Keep ~6 hours of minute buckets
-            cutoff = minute - 6 * 60 * 60
-            for k in [k for k in self.buckets if k < cutoff]:
-                del self.buckets[k]
-
+            self._prune_buckets_unlocked(minute)
             self.recent.appendleft(ev)
             self._persist_unlocked()
         return ev
@@ -212,15 +216,19 @@ class StatsStore:
             tokens_in = t["tokens_in"] or 1
             save_pct_chars = round(100.0 * t["chars_saved"] / chars_in, 2)
             save_pct_tokens = round(100.0 * t["tokens_saved"] / tokens_in, 2)
-            recent = [asdict(e) | {"chars_saved": e.chars_saved, "tokens_saved": e.tokens_saved} for e in list(self.recent)[:50]]
-            series = [
-                {"t": k, **self.buckets[k]}
-                for k in sorted(self.buckets.keys())
+            recent = [
+                asdict(e) | {"chars_saved": e.chars_saved, "tokens_saved": e.tokens_saved}
+                for e in list(self.recent)[:50]
             ]
+            series = [{"t": k, **self.buckets[k]} for k in sorted(self.buckets.keys())]
             return {
                 "started_at": self.started_at,
+                "first_started_at": self.first_started_at,
                 "now": time.time(),
                 "uptime_s": int(time.time() - self.started_at),
+                "lifetime_s": int(time.time() - self.first_started_at),
+                "persisted": bool(self.persist_path),
+                "persist_path": str(self.persist_path) if self.persist_path else None,
                 "totals": t,
                 "save_pct_chars": save_pct_chars if t["chars_in"] else 0.0,
                 "save_pct_tokens": save_pct_tokens if t["tokens_in"] else 0.0,
@@ -234,8 +242,16 @@ class StatsStore:
                 self.totals[k] = 0
             self.recent.clear()
             self.buckets.clear()
-            self.started_at = time.time()
+            now = time.time()
+            self.started_at = now
+            self.first_started_at = now
             self._persist_unlocked()
+
+    def _prune_buckets_unlocked(self, minute: int) -> None:
+        cutoff = minute - _BUCKET_RETENTION_S
+        stale = [k for k in self.buckets if k < cutoff]
+        for k in stale:
+            del self.buckets[k]
 
     def _persist_unlocked(self) -> None:
         if not self.persist_path:
@@ -243,27 +259,52 @@ class StatsStore:
         try:
             self.persist_path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
-                "started_at": self.started_at,
+                "version": 1,
+                "first_started_at": self.first_started_at,
+                "started_at": self.first_started_at,  # legacy key = lifetime start
                 "totals": self.totals,
-                "recent": [asdict(e) for e in list(self.recent)[:100]],
+                "recent": [asdict(e) for e in list(self.recent)[:_RECENT_PERSIST]],
                 "buckets": {str(k): v for k, v in self.buckets.items()},
             }
-            self.persist_path.write_text(json.dumps(payload), encoding="utf-8")
-        except OSError:
-            pass
+            text = json.dumps(payload, separators=(",", ":"))
+            tmp = self.persist_path.with_suffix(self.persist_path.suffix + ".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, self.persist_path)
+        except OSError as e:
+            log.warning("stats persist failed (%s): %s", self.persist_path, e)
 
     def _load(self) -> None:
+        assert self.persist_path is not None
         try:
-            data = json.loads(self.persist_path.read_text(encoding="utf-8"))  # type: ignore[union-attr]
-        except (OSError, json.JSONDecodeError):
+            data = json.loads(self.persist_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("stats load failed (%s): %s", self.persist_path, e)
             return
-        self.started_at = float(data.get("started_at") or time.time())
+
+        # Lifetime start: prefer first_started_at, fall back to legacy started_at.
+        lifetime = data.get("first_started_at", data.get("started_at"))
+        if lifetime:
+            try:
+                self.first_started_at = float(lifetime)
+            except (TypeError, ValueError):
+                pass
+        # Session uptime always starts now.
+        self.started_at = time.time()
+
         for k, v in (data.get("totals") or {}).items():
             if k in self.totals:
-                self.totals[k] = int(v)
-        for item in data.get("recent") or []:
+                try:
+                    self.totals[k] = int(v)
+                except (TypeError, ValueError):
+                    continue
+
+        # File stores newest-first (same as list(self.recent)); restore with appendleft
+        # from oldest→newest so left side stays newest.
+        items = list(data.get("recent") or [])
+        restored: list[RequestEvent] = []
+        for item in items:
             try:
-                self.recent.append(
+                restored.append(
                     RequestEvent(
                         ts=float(item["ts"]),
                         host=str(item.get("host", "")),
@@ -279,27 +320,53 @@ class StatsStore:
                 )
             except (KeyError, TypeError, ValueError):
                 continue
+        self.recent.clear()
+        for ev in reversed(restored):
+            self.recent.appendleft(ev)
+
         for k, v in (data.get("buckets") or {}).items():
             try:
-                self.buckets[int(k)] = {kk: int(vv) for kk, vv in v.items()}
+                self.buckets[int(k)] = {
+                    kk: int(vv) for kk, vv in dict(v).items() if isinstance(vv, (int, float))
+                }
             except (TypeError, ValueError):
                 continue
+        self._prune_buckets_unlocked(int(time.time() // 60) * 60)
+        self._loaded = True
+        log.info(
+            "restored stats from %s — %s requests, %s tokens saved, %s recent, %s buckets",
+            self.persist_path,
+            self.totals.get("requests", 0),
+            self.totals.get("tokens_saved", 0),
+            len(self.recent),
+            len(self.buckets),
+        )
 
 
 _STORE: StatsStore | None = None
 _STORE_LOCK = threading.Lock()
 
 
+def resolve_stats_path(path: str | Path, *, base: Path | None = None) -> Path:
+    """Resolve stats path relative to project/config base (not process cwd)."""
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        root = base or Path(__file__).resolve().parent.parent
+        p = root / p
+    return p.resolve()
+
+
 def get_store(persist_path: str | Path | None = None) -> StatsStore:
     global _STORE
     with _STORE_LOCK:
         if _STORE is None:
-            _STORE = StatsStore(persist_path=persist_path)
+            resolved = resolve_stats_path(persist_path) if persist_path else None
+            _STORE = StatsStore(persist_path=resolved)
         return _STORE
 
 
 def init_store(persist_path: str | Path) -> StatsStore:
     global _STORE
     with _STORE_LOCK:
-        _STORE = StatsStore(persist_path=persist_path)
+        _STORE = StatsStore(persist_path=resolve_stats_path(persist_path))
         return _STORE

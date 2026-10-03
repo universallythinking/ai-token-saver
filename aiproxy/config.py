@@ -92,8 +92,19 @@ class Config:
                     log_raw.get("dump_only_when_stripped", True)
                 ),
             ),
-            stats_path=str(raw.get("stats_path", "logs/stats.json")),
+            stats_path=_resolve_stats_path(
+                str(raw.get("stats_path", "logs/stats.json")),
+                base=path.parent if path.exists() else Path(__file__).resolve().parent.parent,
+            ),
         )
+
+
+def _resolve_stats_path(stats_path: str, *, base: Path) -> str:
+    """Make stats_path absolute relative to the config file (not cwd)."""
+    p = Path(stats_path).expanduser()
+    if not p.is_absolute():
+        p = base / p
+    return str(p.resolve())
 
 
 def host_matches(host: str, patterns: list[str]) -> bool:

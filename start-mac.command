@@ -79,9 +79,9 @@ APP="${APP:-1}"
 echo
 read -r -p "Dry-run first? (log savings, do not rewrite bodies) [Y/n]: " DRY
 DRY="$(echo "${DRY:-Y}" | tr '[:upper:]' '[:lower:]')"
-DRY_FLAG=()
+DRY_RUN=0
 if [[ "$DRY" != "n" && "$DRY" != "no" ]]; then
-  DRY_FLAG=(--dry-run)
+  DRY_RUN=1
   echo "→ dry-run ON"
 else
   echo "→ dry-run OFF (will strip when rules match)"
@@ -194,4 +194,9 @@ echo "Ctrl+C to stop."
 echo "========================================"
 echo
 
-exec "$VENV_PY" -m aiproxy --mode "$MODE" "${DRY_FLAG[@]}"
+# Avoid empty-array + set -u on macOS bash 3.2 ("unbound variable").
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  exec "$VENV_PY" -m aiproxy --mode "$MODE" --dry-run
+else
+  exec "$VENV_PY" -m aiproxy --mode "$MODE"
+fi

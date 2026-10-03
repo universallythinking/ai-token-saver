@@ -14,7 +14,7 @@ from .connect_strip import (
     path_should_strip_connect,
     try_strip_connect_bytes,
 )
-from .stats import StatsStore, get_store
+from .stats import StatsStore, get_store, resolve_stats_path
 from .stripper import estimate_tokens, try_strip_bytes
 
 log = logging.getLogger("aiproxy.addon")
@@ -59,7 +59,7 @@ def _content_length(flow: http.HTTPFlow) -> int:
 class CursorStripAddon:
     def __init__(self, config: Config, store: StatsStore | None = None):
         self.config = config
-        self.store = store or get_store(config.stats_path)
+        self.store = store or get_store(resolve_stats_path(config.stats_path))
         self.dump_dir = Path(config.logging.dump_dir)
         self.dump_dir.mkdir(parents=True, exist_ok=True)
 
