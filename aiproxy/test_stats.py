@@ -22,11 +22,16 @@ def test_persist_survives_reload(tmp_path: Path):
         tokens_out=250,
         stripped=True,
         notes=["dedupe"],
+        model="gpt-4o",
     )
     store.record_passthrough(chars_in=100, host="h", path="/p", reason="skip")
     assert path.exists()
     assert store.totals["tokens_saved"] == 750
     assert store.totals["requests"] == 2
+    assert store.by_model["gpt-4o"]["tokens_saved"] == 750
+    snap = store.snapshot()
+    assert snap["usd_saved_est"] > 0
+    assert "gpt-4o" in snap["by_model"]
 
     first = store.first_started_at
     reloaded = StatsStore(persist_path=path)
@@ -34,12 +39,14 @@ def test_persist_survives_reload(tmp_path: Path):
     assert reloaded.totals["tokens_in"] == 1000 + max(1, 100 // 4)
     assert reloaded.totals["stripped"] == 1
     assert reloaded.totals["requests"] == 2
+    assert reloaded.by_model["gpt-4o"]["tokens_saved"] == 750
     assert abs(reloaded.first_started_at - first) < 1e-6
     # New session clock
     assert reloaded.started_at >= first
     assert len(reloaded.recent) == 2
     assert reloaded.recent[0].stripped is False  # newest first (passthrough)
     assert reloaded.recent[1].stripped is True
+    assert reloaded.recent[1].model == "gpt-4o"
     assert reloaded.buckets
 
 

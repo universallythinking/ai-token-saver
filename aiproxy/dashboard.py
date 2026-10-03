@@ -243,11 +243,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   }
   .hero {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 12px;
     margin-bottom: 14px;
   }
-  @media (max-width: 900px) { .hero { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 1100px) { .hero { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 700px) { .hero { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 560px) { .hero { grid-template-columns: 1fr; } }
   .panel {
     background: var(--panel);
@@ -312,10 +313,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   @media (max-width: 900px) { .charts { grid-template-columns: 1fr; } }
   .pies {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 12px;
     margin-bottom: 14px;
   }
+  @media (max-width: 1000px) { .pies { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 700px) { .pies { grid-template-columns: 1fr; } }
   .chart { height: 220px; }
   .pie-wrap {
@@ -498,6 +500,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <div class="sub" id="token-pct">0% removed</div>
       </div>
       <div class="panel stat">
+        <label>Est. $/hr</label>
+        <div class="v pct" id="usd-saved">$0/hr</div>
+        <div class="sub" id="usd-sub">$0/req · approx</div>
+      </div>
+      <div class="panel stat">
         <label>Characters saved</label>
         <div class="v pct" id="chars-saved">0</div>
         <div class="sub" id="char-pct">0% removed</div>
@@ -554,6 +561,16 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
           <div class="legend col" id="pie-traffic-legend"></div>
         </div>
       </div>
+      <div class="panel">
+        <div class="head">
+          <h2>Models used</h2>
+          <span class="hint" id="models-hint">by tokens in</span>
+        </div>
+        <div class="pie-wrap">
+          <div id="pie-models" style="height:150px"></div>
+          <div class="legend col" id="pie-models-legend"></div>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
@@ -607,7 +624,54 @@ const fmt = (n) => {
   return String(Math.round(n));
 };
 const fmtFull = (n) => (Number(n)||0).toLocaleString();
+const fmtUsd = (n) => {
+  n = Number(n) || 0;
+  if (n >= 100) return "$" + n.toFixed(0);
+  if (n >= 1) return "$" + n.toFixed(2);
+  if (n >= 0.01) return "$" + n.toFixed(2);
+  if (n > 0) return "$" + n.toFixed(4);
+  return "$0";
+};
+
+/** Elapsed hours for rate math — always extrapolate, even under 1 hour. */
+function savingsElapsedHours(d, series) {
+  if (windowMins === 0) {
+    // Lifetime span; floor at 60s so a brand-new session doesn't blow up.
+    return Math.max(Number(d.lifetime_s) || 0, 60) / 3600;
+  }
+  if (series && series.length >= 2) {
+    const span = (series[series.length - 1].t - series[0].t) + 60;
+    return Math.max(span, 60) / 3600;
+  }
+  if (series && series.length === 1) {
+    return 1 / 60; // one minute bucket → extrapolate ×60
+  }
+  // Empty window: use selected window length, capped by lifetime.
+  const winS = windowMins * 60;
+  const life = Number(d.lifetime_s) || 0;
+  const elapsed = life > 0 ? Math.min(winS, life) : winS;
+  return Math.max(elapsed, 60) / 3600;
+}
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const MODEL_COLORS = ["#1f6feb","#0f7a5f","#2a9d8f","#c4782b","#8b5cf6","#db6b5a","#0b5c47","#6b7a73","#3b82f6","#d97706"];
+
+function shortModel(name) {
+  const s = String(name || "unknown");
+  return s.length > 22 ? s.slice(0, 20) + "…" : s;
+}
+
+function modelsFromRecent(recent) {
+  const map = {};
+  for (const r of recent || []) {
+    const m = r.model || "unknown";
+    const st = map[m] || {tokens_in: 0, tokens_saved: 0, n: 0};
+    st.tokens_in += Number(r.tokens_in || 0);
+    st.tokens_saved += Number(r.tokens_saved || 0);
+    st.n += 1;
+    map[m] = st;
+  }
+  return map;
+}
 
 function windowCutoff(now) {
   if (!windowMins) return 0;
@@ -812,8 +876,10 @@ function renderTable(recent) {
   }
   const rows = recent.slice(0, 40).map(r => {
     const t = new Date(r.ts*1000).toLocaleTimeString();
+    const model = shortModel(r.model || "unknown");
     return `<tr>
       <td>${t}</td>
+      <td class="path" title="${r.model||""}">${model}</td>
       <td class="path" title="${r.path||""}">${r.path||""}</td>
       <td>${fmtFull(r.tokens_in)} / ${fmtFull(r.chars_in)}</td>
       <td>${fmtFull(r.tokens_out)} / ${fmtFull(r.chars_out)}</td>
@@ -823,7 +889,7 @@ function renderTable(recent) {
   }).join("");
   wrap.innerHTML = `<table>
     <thead><tr>
-      <th>time</th><th>path</th>
+      <th>time</th><th>model</th><th>path</th>
       <th>in tok/char</th><th>out tok/char</th><th>saved</th><th></th>
     </tr></thead>
     <tbody>${rows}</tbody>
@@ -860,6 +926,21 @@ function applyView(d) {
   document.getElementById("chars-in").textContent = fmtFull(use.chars_in) + " chars · " + fmtFull(use.n) + (windowMins === 0 ? " req" : " buckets");
   document.getElementById("tokens-out").textContent = fmtFull(use.tokens_out) + " tok";
   document.getElementById("chars-out").textContent = fmtFull(use.chars_out) + " chars · " + fmtFull(use.stripped) + " stripped";
+
+  // Cost from tokens_saved in view × blended $/MTok (same basis as Tokens saved).
+  // $/hr extrapolates when the sample is under an hour; also show $/req + total.
+  const rate = Number(d.usd_per_mtok || 3);
+  const tokSaved = Number(use.tokens_saved || 0);
+  const usd = tokSaved * rate / 1e6;
+  const hours = savingsElapsedHours(d, series);
+  const usdPerHour = hours > 0 ? usd / hours : 0;
+  const reqs = Number(use.n || 0);
+  const usdPerReq = reqs > 0 ? usd / reqs : 0;
+  const elapsedMin = Math.max(1, Math.round(hours * 60));
+  const rateNote = elapsedMin < 60 ? `from ${elapsedMin}m` : `from ${Math.round(hours)}h`;
+  document.getElementById("usd-saved").textContent = fmtUsd(usdPerHour) + "/hr";
+  document.getElementById("usd-sub").textContent =
+    fmtUsd(usdPerReq) + "/req · " + fmtUsd(usd) + " total · @" + rate.toFixed(2) + "/MTok · " + rateNote;
 
   const mins = Math.floor((d.uptime_s||0)/60);
   const lifeDays = Math.floor((d.lifetime_s||0) / 86400);
@@ -911,6 +992,30 @@ function applyView(d) {
       {label: "ignored", value: tAll.ignored || 0, color: cssVar("--ignored") || "#8a968a"},
       {label: "passthrough", value: tAll.passthrough || 0, color: cssVar("--muted") || "#6b7a73"},
     ]
+  );
+
+  const byModel = windowMins === 0
+    ? (d.by_model || {})
+    : modelsFromRecent(recent);
+  const modelEntries = Object.entries(byModel)
+    .map(([name, st]) => ({name, tokens_in: Number(st.tokens_in || 0), n: Number(st.n || 0)}))
+    .filter(x => x.tokens_in > 0 || x.n > 0)
+    .sort((a, b) => b.tokens_in - a.tokens_in)
+    .slice(0, 10);
+  document.getElementById("models-hint").textContent =
+    modelEntries.length
+      ? `${modelEntries.length} model${modelEntries.length===1?"":"s"} · ${windowMins===0?"lifetime":WINDOWS[windowMins]}`
+      : "no model traffic yet";
+  renderPie(
+    document.getElementById("pie-models"),
+    document.getElementById("pie-models-legend"),
+    modelEntries.length
+      ? modelEntries.map((m, i) => ({
+          label: shortModel(m.name),
+          value: m.tokens_in || m.n,
+          color: MODEL_COLORS[i % MODEL_COLORS.length],
+        }))
+      : [{label: "none", value: 0, color: cssVar("--muted") || "#6b7a73"}]
   );
   renderTable(recent);
 }

@@ -14,6 +14,7 @@ from .connect_strip import (
     path_should_strip_connect,
     try_strip_connect_bytes,
 )
+from .pricing import extract_model
 from .stats import StatsStore, get_store, resolve_stats_path
 from .stripper import estimate_tokens, try_strip_bytes
 
@@ -287,6 +288,7 @@ class CursorStripAddon:
             stripped=result.changed and not force_dry,
             notes=notes,
             dry_run=effective_dry,
+            model=extract_model(raw),
         )
         if result.changed:
             if not effective_dry and new_raw != raw:
@@ -360,6 +362,7 @@ class CursorStripAddon:
             stripped=result.changed and not force_dry,
             notes=notes,
             dry_run=effective_dry,
+            model=extract_model(raw, result.original if hasattr(result, "original") else None),
         )
 
         if result.changed:

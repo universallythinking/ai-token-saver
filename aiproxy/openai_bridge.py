@@ -9,6 +9,7 @@ from aiohttp import ClientSession, ClientTimeout, web
 
 from .config import Config
 from .dashboard import start_dashboard_background
+from .pricing import extract_model
 from .stats import init_store, resolve_stats_path
 from .stripper import estimate_tokens, try_strip_bytes
 
@@ -99,6 +100,7 @@ async def handle(request: web.Request) -> web.StreamResponse:
                 stripped=result.changed,
                 notes=result.notes,
                 dry_run=config.strip.dry_run,
+                model=extract_model(body, result.original),
             )
             if result.changed:
                 log.info(

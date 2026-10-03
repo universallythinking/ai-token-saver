@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .pricing import blended_rate_usd_per_mtok, estimate_usd_saved
+
 log = logging.getLogger("aiproxy.stats")
 
 # Keep minute buckets long enough that charts survive overnight / weekend gaps.
@@ -29,6 +31,7 @@ class RequestEvent:
     stripped: bool
     notes: list[str] = field(default_factory=list)
     dry_run: bool = False
+    model: str = "unknown"
 
     @property
     def chars_saved(self) -> int:
@@ -37,6 +40,19 @@ class RequestEvent:
     @property
     def tokens_saved(self) -> int:
         return max(0, self.tokens_in - self.tokens_out)
+
+
+def _empty_model_stats() -> dict[str, int]:
+    return {
+        "n": 0,
+        "stripped": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "tokens_saved": 0,
+        "chars_in": 0,
+        "chars_out": 0,
+        "chars_saved": 0,
+    }
 
 
 def _empty_totals() -> dict[str, int]:
@@ -89,6 +105,8 @@ class StatsStore:
         self.totals = _empty_totals()
         self.recent: deque[RequestEvent] = deque(maxlen=history_limit)
         self.buckets: dict[int, dict[str, int]] = {}
+        # Lifetime per-model aggregates for the models pie + cost estimate.
+        self.by_model: dict[str, dict[str, int]] = {}
         self._loaded = False
         if self.persist_path and self.persist_path.exists():
             self._load()
@@ -166,7 +184,9 @@ class StatsStore:
         stripped: bool,
         notes: list[str] | None = None,
         dry_run: bool = False,
+        model: str = "unknown",
     ) -> RequestEvent:
+        model_name = (model or "unknown").strip() or "unknown"
         ev = RequestEvent(
             ts=time.time(),
             host=host,
@@ -178,6 +198,7 @@ class StatsStore:
             stripped=stripped,
             notes=list(notes or []),
             dry_run=dry_run,
+            model=model_name,
         )
         with self._lock:
             self.totals["requests"] += 1
@@ -191,6 +212,17 @@ class StatsStore:
             self.totals["tokens_in"] += tokens_in
             self.totals["tokens_out"] += tokens_out
             self.totals["tokens_saved"] += ev.tokens_saved
+
+            ms = self.by_model.setdefault(model_name, _empty_model_stats())
+            ms["n"] += 1
+            if stripped:
+                ms["stripped"] += 1
+            ms["tokens_in"] += tokens_in
+            ms["tokens_out"] += tokens_out
+            ms["tokens_saved"] += ev.tokens_saved
+            ms["chars_in"] += chars_in
+            ms["chars_out"] += chars_out
+            ms["chars_saved"] += ev.chars_saved
 
             minute = int(ev.ts // 60) * 60
             b = self.buckets.setdefault(minute, _empty_bucket())
@@ -221,6 +253,17 @@ class StatsStore:
                 for e in list(self.recent)[:50]
             ]
             series = [{"t": k, **self.buckets[k]} for k in sorted(self.buckets.keys())]
+            by_model = {
+                name: dict(st)
+                for name, st in sorted(
+                    self.by_model.items(),
+                    key=lambda kv: (-kv[1].get("tokens_in", 0), kv[0]),
+                )
+            }
+            # Price from lifetime tokens_saved × blended model rate so the
+            # dollar figure tracks the same counter as the Tokens saved card.
+            rate = blended_rate_usd_per_mtok(by_model)
+            usd_saved = estimate_usd_saved(by_model, tokens_saved=int(t["tokens_saved"]))
             return {
                 "started_at": self.started_at,
                 "first_started_at": self.first_started_at,
@@ -234,6 +277,9 @@ class StatsStore:
                 "save_pct_tokens": save_pct_tokens if t["tokens_in"] else 0.0,
                 "recent": recent,
                 "series": series,
+                "by_model": by_model,
+                "usd_saved_est": usd_saved,
+                "usd_per_mtok": round(rate, 4),
             }
 
     def reset(self) -> None:
@@ -242,6 +288,7 @@ class StatsStore:
                 self.totals[k] = 0
             self.recent.clear()
             self.buckets.clear()
+            self.by_model.clear()
             now = time.time()
             self.started_at = now
             self.first_started_at = now
@@ -265,6 +312,7 @@ class StatsStore:
                 "totals": self.totals,
                 "recent": [asdict(e) for e in list(self.recent)[:_RECENT_PERSIST]],
                 "buckets": {str(k): v for k, v in self.buckets.items()},
+                "by_model": self.by_model,
             }
             text = json.dumps(payload, separators=(",", ":"))
             tmp = self.persist_path.with_suffix(self.persist_path.suffix + ".tmp")
@@ -316,6 +364,7 @@ class StatsStore:
                         stripped=bool(item.get("stripped")),
                         notes=list(item.get("notes") or []),
                         dry_run=bool(item.get("dry_run")),
+                        model=str(item.get("model") or "unknown"),
                     )
                 )
             except (KeyError, TypeError, ValueError):
@@ -331,14 +380,41 @@ class StatsStore:
                 }
             except (TypeError, ValueError):
                 continue
+
+        raw_models = data.get("by_model") or {}
+        if isinstance(raw_models, dict) and raw_models:
+            for name, st in raw_models.items():
+                if not isinstance(st, dict):
+                    continue
+                ms = _empty_model_stats()
+                for kk in ms:
+                    try:
+                        ms[kk] = int(st.get(kk, 0))
+                    except (TypeError, ValueError):
+                        pass
+                self.by_model[str(name)] = ms
+        else:
+            # Rebuild from recent if older stats.json lacked by_model.
+            for ev in self.recent:
+                ms = self.by_model.setdefault(ev.model or "unknown", _empty_model_stats())
+                ms["n"] += 1
+                if ev.stripped:
+                    ms["stripped"] += 1
+                ms["tokens_in"] += ev.tokens_in
+                ms["tokens_out"] += ev.tokens_out
+                ms["tokens_saved"] += ev.tokens_saved
+                ms["chars_in"] += ev.chars_in
+                ms["chars_out"] += ev.chars_out
+                ms["chars_saved"] += ev.chars_saved
+
         self._prune_buckets_unlocked(int(time.time() // 60) * 60)
         self._loaded = True
         log.info(
-            "restored stats from %s — %s requests, %s tokens saved, %s recent, %s buckets",
+            "restored stats from %s — %s requests, %s tokens saved, %s models, %s buckets",
             self.persist_path,
             self.totals.get("requests", 0),
             self.totals.get("tokens_saved", 0),
-            len(self.recent),
+            len(self.by_model),
             len(self.buckets),
         )
 
