@@ -158,12 +158,14 @@ async def handle(request: web.Request) -> web.StreamResponse:
 def _banner(config: Config) -> str:
     base = f"http://{config.listen_host}:{config.listen_port}"
     dash = f"http://{config.listen_host}:{config.dashboard_port}/"
+    dash_v2 = f"http://{config.listen_host}:{config.dashboard_port}/v2"
     dry = config.strip.dry_run
     if config.mode == "anthropic":
         return (
             f"aiproxy anthropic bridge on {base}\n"
             f"  upstream   {config.anthropic_upstream}\n"
             f"  dashboard  {dash}\n"
+            f"  dashboard  {dash_v2}\n"
             f"  dry-run    {dry}\n"
             f"\n"
             f"Claude Code:\n"
@@ -176,6 +178,7 @@ def _banner(config: Config) -> str:
             f"aiproxy openai bridge on {base}\n"
             f"  upstream   {config.openai_upstream}\n"
             f"  dashboard  {dash}\n"
+            f"  dashboard  {dash_v2}\n"
             f"  dry-run    {dry}\n"
             f"\n"
             f"Cursor → Settings → Models → OpenAI Base URL:\n"
@@ -187,6 +190,7 @@ def _banner(config: Config) -> str:
         f"  openai     {config.openai_upstream}\n"
         f"  anthropic  {config.anthropic_upstream}\n"
         f"  dashboard  {dash}\n"
+        f"  dashboard  {dash_v2}\n"
         f"  dry-run    {dry}\n"
         f"\n"
         f"Claude Code:  export ANTHROPIC_BASE_URL=\"{base}\" && claude\n"

@@ -50,6 +50,32 @@ def test_persist_survives_reload(tmp_path: Path):
     assert reloaded.buckets
 
 
+def test_reattribute_latest_model(tmp_path: Path):
+    path = tmp_path / "stats.json"
+    store = StatsStore(persist_path=path)
+    store.record(
+        host="api2.cursor.sh",
+        path="ws:/agent/v1/run",
+        chars_in=4000,
+        chars_out=1000,
+        tokens_in=1000,
+        tokens_out=250,
+        stripped=True,
+        model="default",
+    )
+    assert store.by_model["default"]["tokens_saved"] == 750
+    ok = store.reattribute_latest_model(
+        host="api2.cursor.sh",
+        path="ws:/agent/v1/run",
+        new_model="claude-opus-5-5",
+    )
+    assert ok
+    assert "default" not in store.by_model
+    assert store.by_model["claude-opus-5-5"]["tokens_saved"] == 750
+    assert store.recent[0].model == "claude-opus-5-5"
+    assert "auto-resolved" in store.recent[0].notes
+
+
 def test_reset_clears_persisted(tmp_path: Path):
     path = tmp_path / "stats.json"
     store = StatsStore(persist_path=path)
@@ -76,5 +102,6 @@ if __name__ == "__main__":
         root = Path(d)
         test_resolve_stats_path_relative_to_base(root)
         test_persist_survives_reload(root)
+        test_reattribute_latest_model(root)
         test_reset_clears_persisted(root)
     print("ok")

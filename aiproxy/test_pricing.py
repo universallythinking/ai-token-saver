@@ -8,6 +8,7 @@ from aiproxy.pricing import (
     estimate_usd_saved,
     extract_model,
     extract_model_from_protobuf,
+    extract_model_from_server_bytes,
     max_rate_usd_per_mtok,
     rate_usd_per_mtok,
     set_assumed_model,
@@ -66,6 +67,16 @@ def test_rate_and_estimate():
     assert abs(estimate_usd(1_000_000, "gpt-4o") - 2.50) < 1e-9
 
 
+def test_extract_model_from_server_bytes():
+    raw = b'{"served_model":"claude-opus-5-5","ok":true}'
+    assert extract_model_from_server_bytes(raw) == "claude-opus-5-5"
+    # Exact protobuf descriptor near the start
+    name = b"grok-4.7"
+    field = b"\x0a" + bytes([len(name)]) + name
+    raw2 = bytes([len(field)]) + field + b"\x00padding"
+    assert extract_model_from_server_bytes(raw2) == "grok-4.7"
+
+
 if __name__ == "__main__":
     test_extract_model_from_json()
     test_extract_model_from_protobuf_descriptor()
@@ -73,4 +84,5 @@ if __name__ == "__main__":
     test_extract_model_nested_key()
     test_actual_vs_max_savings()
     test_rate_and_estimate()
+    test_extract_model_from_server_bytes()
     print("ok")

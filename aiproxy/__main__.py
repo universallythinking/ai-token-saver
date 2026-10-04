@@ -176,6 +176,7 @@ def _run_mitm(config) -> int:  # noqa: ANN001
     print(
         f"aiproxy mitm on {config.listen_host}:{config.listen_port}\n"
         f"dashboard      http://{config.listen_host}:{config.dashboard_port}/\n"
+        f"dashboard v2   http://{config.listen_host}:{config.dashboard_port}/v2\n"
         f"Dry-run={config.strip.dry_run}  http2=off (use Cursor disableHttp2)\n"
         f"\n"
         f"Cursor settings.json:\n"

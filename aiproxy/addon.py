@@ -14,7 +14,7 @@ from .connect_strip import (
     path_should_strip_connect,
     try_strip_connect_bytes,
 )
-from .pricing import extract_model
+from .pricing import extract_model, extract_model_from_server_bytes
 from .stats import StatsStore, get_store, resolve_stats_path
 from .stripper import estimate_tokens, try_strip_bytes
 
@@ -238,11 +238,11 @@ class CursorStripAddon:
         self._record_and_apply(flow, host, path, raw, new_raw, result)
 
     def websocket_message(self, flow: http.HTTPFlow) -> None:
-        """Strip client→server agent WebSocket frames (/agent/v1/run etc.)."""
+        """Strip client→server agent frames; sniff server frames for Auto model."""
         if flow.websocket is None or not flow.websocket.messages:
             return
         message = flow.websocket.messages[-1]
-        if not message.from_client or message.dropped:
+        if message.dropped:
             return
 
         host = flow.request.pretty_host or ""
@@ -253,6 +253,23 @@ class CursorStripAddon:
             return
 
         raw = message.content or b""
+
+        # Server→client: Auto often hides the routed model, but when it appears
+        # in the stream (or "Underlying model: Displayed"), reattribute the
+        # matching client request from default/unknown → concrete model.
+        if not message.from_client:
+            if len(raw) < 8:
+                return
+            resolved = extract_model_from_server_bytes(raw)
+            if resolved not in {"unknown", "default", "auto"}:
+                if self.store.reattribute_latest_model(
+                    host=host, path=f"ws:{path}", new_model=resolved
+                ):
+                    ctx.log.info(
+                        f"auto-resolved model {host}{path} → {resolved}"
+                    )
+            return
+
         if len(raw) < 32:
             return
 

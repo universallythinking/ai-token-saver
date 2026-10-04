@@ -56,6 +56,13 @@ _INPUT_USD_PER_MTOK: list[tuple[str, float]] = [
     ("composer", 3.0),
     ("cursor-small", 0.15),
     ("cursor-fast", 0.15),
+    # xAI (Cursor catalog)
+    ("grok-4.7", 3.0),
+    ("grok-4.6", 3.0),
+    ("grok-4.5", 3.0),
+    ("grok-4", 3.0),
+    ("grok-code", 0.20),
+    ("grok", 3.0),
 ]
 
 # Used when nothing is detected and no assume_model is configured.
@@ -102,7 +109,8 @@ _STRICT_MODEL_RE = re.compile(
     r"|gpt-\d[\w.\-]*"                    # gpt-4o, gpt-5-mini
     r"|o[1345](?:-(?:mini|pro))?"         # o1, o3-mini, o4-mini
     r"|gemini-\d[\w.\-]*"                 # gemini-2.5-pro
-    r"|composer-\d+"                      # composer-1
+    r"|grok-[\w.\-]+"                     # grok-4.7, grok-code-fast-1
+    r"|composer-[\w.\-]+"                 # composer-1, composer-2.5
     r"|cursor-(?:small|fast|best)"
     r")$",
     re.IGNORECASE,
@@ -316,31 +324,117 @@ def extract_model_from_protobuf(data: bytes) -> str:
     return selected or "unknown"
 
 
-def extract_model(raw: bytes | None = None, parsed: Any = None) -> str:
-    """Best-effort model id from a JSON object and/or raw request body."""
-    if isinstance(parsed, dict):
-        got = _model_from_mapping(parsed)
-        if got != "unknown":
+# Server streams sometimes name the routed model explicitly (esp. when
+# "Underlying model: Displayed" is on, or in provider metadata).
+_SERVER_MODEL_RE = re.compile(
+    rb"(?:model(?:Name|Id|_name|_id)?|served[_-]?model|routed[_-]?model|"
+    rb"underlying[_-]?model|cursor)\s*[\"':=\s]+[\"']?("
+    rb"claude-[\w.\-]+|gpt-[\w.\-]+|o[1345](?:-[\w.\-]+)?|"
+    rb"gemini-[\w.\-]+|grok-[\w.\-]+|composer-[\w.\-]+|cursor-[\w.\-]+"
+    rb")",
+    re.IGNORECASE,
+)
+
+
+def extract_model_from_server_bytes(data: bytes | None) -> str:
+    """Best-effort routed model id from a server→client agent frame.
+
+    Auto/default requests hide the model on the way out; when Cursor includes
+    it in the response stream (or metadata), pick it up from the first few KB
+    only so we don't match echoed request menus deep in the payload.
+    """
+    if not data:
+        return "unknown"
+    sample = data[:16384]
+
+    # JSON / text annotations first (more specific than bare descriptors).
+    m = _SERVER_MODEL_RE.search(sample)
+    if m:
+        got = normalize_model(m.group(1).decode("utf-8", errors="ignore"))
+        if got not in {"unknown", "default"}:
             return got
 
-    if not raw:
-        return "unknown"
+    m = _JSON_MODEL_RE.search(sample)
+    if m:
+        got = normalize_model(m.group(1).decode("utf-8", errors="ignore"))
+        if got not in {"unknown", "default"}:
+            return got
 
-    looks_json = raw[:1] in (b"{", b"[") or raw.lstrip()[:1] in (b"{", b"[")
-    if looks_json:
+    # Exact protobuf name fields near the start of the response.
+    for m in _PB_NAME_RE.finditer(sample):
+        namelen = m.group(1)[0]
+        raw_name = m.group(2)[:namelen]
+        if len(raw_name) != namelen:
+            continue
         try:
-            obj = json.loads(raw.decode("utf-8", errors="ignore"))
-            if isinstance(obj, dict):
-                got = _model_from_mapping(obj)
-                if got != "unknown":
-                    return got
-        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            pass
-        m = _JSON_MODEL_RE.search(raw[:65536])
-        if m:
-            got = normalize_model(m.group(1).decode("utf-8", errors="ignore"))
-            if got != "unknown":
-                return got
-        return "unknown"
+            name = raw_name.decode("ascii")
+        except UnicodeDecodeError:
+            continue
+        got = normalize_model(name)
+        if got in {"unknown", "default"}:
+            continue
+        start = m.start()
+        if start >= 1 and sample[start - 1] == namelen + 2:
+            return got
+        # Also accept early bare name runs that look like model ids (no menu
+        # metadata) when they appear in the first 2KB of a server frame.
+        if start < 2048 and is_priceable(got):
+            return got
 
-    return extract_model_from_protobuf(raw)
+    return "unknown"
+
+
+def _apply_cursor_ui_hint(got: str) -> str:
+    """When the wire says default/unknown, prefer Cursor's last UI selection."""
+    if got not in {"unknown", "default"}:
+        return got
+    try:
+        from .cursor_state import read_cursor_selected_model
+
+        hint = normalize_model(read_cursor_selected_model())
+    except Exception:  # noqa: BLE001
+        return got
+    if hint not in {"unknown", "default", ""}:
+        return hint
+    return got
+
+
+def extract_model(raw: bytes | None = None, parsed: Any = None) -> str:
+    """Best-effort model id from a JSON object and/or raw request body.
+
+    Cursor Agent traffic usually embeds ``default`` (Auto). In that case we
+    fall back to Cursor's local UI state (last applied model), then leave
+    ``default`` for pricing via ``assume_model``.
+    """
+    got = "unknown"
+    if isinstance(parsed, dict):
+        got = _model_from_mapping(parsed)
+        if got not in {"unknown", "default"}:
+            return got
+
+    if raw:
+        looks_json = raw[:1] in (b"{", b"[") or raw.lstrip()[:1] in (b"{", b"[")
+        if looks_json:
+            try:
+                obj = json.loads(raw.decode("utf-8", errors="ignore"))
+                if isinstance(obj, dict):
+                    got = _model_from_mapping(obj)
+                    if got not in {"unknown", "default"}:
+                        return got
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                pass
+            m = _JSON_MODEL_RE.search(raw[:65536])
+            if m:
+                cand = normalize_model(m.group(1).decode("utf-8", errors="ignore"))
+                if cand not in {"unknown", "default"}:
+                    return cand
+                if got == "unknown":
+                    got = cand
+        else:
+            pb = extract_model_from_protobuf(raw)
+            if pb not in {"unknown", "default"}:
+                return pb
+            if got == "unknown":
+                got = pb
+
+    return _apply_cursor_ui_hint(got)

@@ -177,6 +177,64 @@ class StatsStore:
             self.totals["blocked"] += 1
             self._persist_unlocked()
 
+    def reattribute_latest_model(
+        self,
+        *,
+        host: str,
+        path: str,
+        new_model: str,
+    ) -> bool:
+        """Move the newest placeholder-model event onto a concrete model id.
+
+        Used when Auto/default is later resolved from a server response frame.
+        """
+        placeholders = {"unknown", "default", "auto"}
+        new_model = (new_model or "").strip()
+        if not new_model or new_model.lower() in placeholders:
+            return False
+        with self._lock:
+            for ev in self.recent:
+                if ev.host != host or ev.path != path:
+                    continue
+                if (ev.model or "").lower() not in placeholders:
+                    continue
+                if "auto-resolved" in ev.notes:
+                    continue
+                old = ev.model or "unknown"
+                old_ms = self.by_model.get(old)
+                if old_ms:
+                    old_ms["n"] = max(0, old_ms["n"] - 1)
+                    if ev.stripped:
+                        old_ms["stripped"] = max(0, old_ms["stripped"] - 1)
+                    old_ms["tokens_in"] = max(0, old_ms["tokens_in"] - ev.tokens_in)
+                    old_ms["tokens_out"] = max(0, old_ms["tokens_out"] - ev.tokens_out)
+                    old_ms["tokens_saved"] = max(
+                        0, old_ms["tokens_saved"] - ev.tokens_saved
+                    )
+                    old_ms["chars_in"] = max(0, old_ms["chars_in"] - ev.chars_in)
+                    old_ms["chars_out"] = max(0, old_ms["chars_out"] - ev.chars_out)
+                    old_ms["chars_saved"] = max(
+                        0, old_ms["chars_saved"] - ev.chars_saved
+                    )
+                    if old_ms["n"] == 0 and old_ms["tokens_in"] == 0:
+                        self.by_model.pop(old, None)
+
+                ev.model = new_model
+                ev.notes = list(ev.notes) + ["auto-resolved"]
+                ms = self.by_model.setdefault(new_model, _empty_model_stats())
+                ms["n"] += 1
+                if ev.stripped:
+                    ms["stripped"] += 1
+                ms["tokens_in"] += ev.tokens_in
+                ms["tokens_out"] += ev.tokens_out
+                ms["tokens_saved"] += ev.tokens_saved
+                ms["chars_in"] += ev.chars_in
+                ms["chars_out"] += ev.chars_out
+                ms["chars_saved"] += ev.chars_saved
+                self._persist_unlocked()
+                return True
+        return False
+
     def record(
         self,
         *,
