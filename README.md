@@ -27,14 +27,15 @@ Local proxy between **Cursor** / **Claude Code** and the model APIs. It strips b
 ### macOS
 
 1. Double-click **`start-mac.command`** — installs deps, asks Cursor vs Claude, starts the proxy.
-2. Double-click **`install-to-applications.command`** (or **Install to Applications**) — puts **Token Saver** in `/Applications` with a Dock icon.
-3. Open **Token Saver** from Applications / Dock → dashboard opens in your browser.
-4. Click the Dock icon again to focus the existing dashboard tab (does not relaunch). **Quit** from the Dock stops the proxy.
+2. Double-click **`Install to Applications.app`** (or **`install-to-applications.command`**) — puts **Token Saver** in `/Applications` with the Dock icon.
+3. Open **Token Saver** → dashboard opens; complete the setup wizard (or use Quick start if you’ve saved prefs).
+4. Optional: check **Don’t show this again** (enabled once settings are saved) so later launches skip the wizard.
+5. Dock click while running → focuses the existing dashboard tab (or opens a new one if none). **Quit** from the Dock stops the proxy.
 
 ### Windows
 
 1. Double-click **`start-windows.bat`** — installs deps, asks Cursor vs Claude, starts the proxy.
-2. Open [http://127.0.0.1:8081/](http://127.0.0.1:8081/) for the dashboard.
+2. Open [http://127.0.0.1:8081/](http://127.0.0.1:8081/) for the dashboard (same setup wizard as macOS).
 3. Full Windows notes (CA trust, PowerShell paths): [README-Windows.md](README-Windows.md)
 
 > Always run the proxy with the **venv Python** (`.venv/bin/python` on Mac, `.venv\Scripts\python.exe` on Windows) — not system `python`.
@@ -66,15 +67,22 @@ Print ready-to-copy Cursor / Claude snippets:
 
 ```bash
 ./install-to-applications.command
+# or double-click "Install to Applications.app"
 open -a "Token Saver"
 ```
 
-- Uses prefs from `.aiproxy_runtime.env` / session (Quick start in `start-mac.command`)
-- First launch → [http://127.0.0.1:8081/?setup=1](http://127.0.0.1:8081/?setup=1)
-- Dock click while open → focuses the existing dashboard tab (same path, no relaunch)
-- Logs: `~/Library/Logs/TokenSaver/proxy.log`
-- Re-run the installer after moving the repo
-- Does **not** stop the optional `tokensaver.local` port-80 forwarder
+| Behavior | Detail |
+|----------|--------|
+| Prefs | `.aiproxy_runtime.env` / `.aiproxy_session.env` (Quick start + setup wizard) |
+| First launch | Opens dashboard with setup wizard (`?setup=1`) unless **Don’t show this again** was saved |
+| Dock click (app open) | Focuses an existing `127.0.0.1:8081` / `tokensaver.local` tab; otherwise opens a new tab |
+| Dock Quit | Stops proxy + dashboard processes |
+| Logs | `~/Library/Logs/TokenSaver/proxy.log` |
+| After moving the repo | Re-run the installer (refreshes `ProjectRoot` + icon) |
+
+The optional `tokensaver.local` port-80 forwarder is **not** stopped on Quit (system service).
+
+Allow **Token Saver → Chrome/Safari** under System Settings → Privacy & Security → Automation if Dock focus can’t switch tabs.
 
 ---
 
@@ -216,9 +224,6 @@ Safe rollout: dry-run → tune `config.yaml` `strip:` → restart without `--dry
 
 ## 7. What gets stripped
 
-**Goals (priority order):** quality → speed → efficiency → token savings.  
-A strip that forces re-Grep/re-Read or worse answers is a net loss — we keep explore tool payloads and drop only low-value bytes (dupes, boilerplate, opaque reasoning signatures).
-
 Configured in `config.yaml` under `strip:`
 
 | Rule | Idea |
@@ -227,11 +232,12 @@ Configured in `config.yaml` under `strip:`
 | `max_chars_recent` / `max_chars_old` | Cap huge file dumps |
 | `dedupe_file_blocks` | Collapse duplicate path/code blocks |
 | `max_tool_result_chars` | Truncate old tool output |
+| `max_bidi_file_chars` | Stub bulky file blobs in Cursor agent frames |
 | `drop_reasoning_parts` | Drop thinking/reasoning blobs |
 | `compress_system` / `max_system_chars` | Shrink oversized system prompts |
 | `drop_keys` | Remove noisy JSON fields |
 
-**Cursor (mitm):** agent protobuf requests are buffered and large UTF-8 string fields truncated; responses still stream.  
+**Cursor (mitm):** agent protobuf / WebSocket requests are walked and large UTF-8 string fields truncated or stubbed; responses still stream.  
 **Claude / OpenAI reverse-proxy:** JSON bodies via `--mode anthropic` / `openai` / `reverse`.
 
 ---
@@ -244,10 +250,13 @@ Configured in `config.yaml` under `strip:`
 | Dashboard | `127.0.0.1:8081` |
 | Alias | `http://tokensaver.local/` after `--install-hostname` |
 | Config | `config.yaml` |
+| Launcher prefs | `.aiproxy_runtime.env` (saved) / `.aiproxy_session.env` (this run) |
 | Stats | `logs/stats.json` |
 | Body dumps | `logs/` |
 | mitmproxy CA | `~/.mitmproxy/mitmproxy-ca-cert.pem` (Windows: `%USERPROFILE%\.mitmproxy\`) |
 | macOS app logs | `~/Library/Logs/TokenSaver/proxy.log` |
+
+`SKIP_SETUP=1` in `.aiproxy_runtime.env` means the Dock app opens the dashboard without the setup wizard (set via **Don’t show this again**). Use the dashboard **Setup** button to change that later.
 
 ---
 
@@ -256,7 +265,7 @@ Configured in `config.yaml` under `strip:`
 ```bash
 # macOS
 open start-mac.command
-./install-to-applications.command
+open "Install to Applications.app"   # or ./install-to-applications.command
 open -a "Token Saver"
 
 .venv/bin/python -m aiproxy --mode mitm --dry-run

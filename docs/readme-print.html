@@ -82,13 +82,14 @@
     width: 64px;
     height: 64px;
     border-radius: 14px;
-    background: linear-gradient(145deg, #0f6b5c 0%, #1a3d36 100%);
-    color: #f4fbf8;
+    background: #1a38b8;
+    color: #f5c738;
     display: flex;
     align-items: center;
     justify-content: center;
-    font: 700 18pt/1 "Avenir Next", sans-serif;
+    font: 700 22pt/1 "Avenir Next", sans-serif;
     flex-shrink: 0;
+    box-shadow: inset 0 0 0 3px #c49214;
   }
   .meta {
     display: grid;
@@ -125,7 +126,7 @@
 <body>
 
 <div class="hero">
-  <div class="hero-mark">TS</div>
+  <div class="hero-mark">$</div>
   <div>
     <h1>Token Saver</h1>
     <p class="tagline">Local proxy for Cursor and Claude Code. Strips bulky context before it hits the model APIs — fewer tokens, same workflow.</p>
@@ -145,16 +146,16 @@
     <h3>macOS</h3>
     <ol>
       <li>Double-click <span class="kbd">start-mac.command</span> — installs deps and starts the proxy.</li>
-      <li>Double-click <span class="kbd">install-to-applications.command</span> (or <span class="kbd">Install to Applications</span>) — adds <strong>Token Saver</strong> to Applications with a Dock icon.</li>
-      <li>Open Token Saver → dashboard opens in your browser.</li>
-      <li>Click the Dock icon anytime to reopen the dashboard. <strong>Quit</strong> from the Dock stops the proxy.</li>
+      <li>Double-click <span class="kbd">Install to Applications.app</span> (or <span class="kbd">install-to-applications.command</span>).</li>
+      <li>Open Token Saver → complete the setup wizard (optional: <strong>Don’t show this again</strong>).</li>
+      <li>Dock click focuses the existing dashboard tab (or opens a new one). <strong>Quit</strong> stops the proxy.</li>
     </ol>
   </div>
   <div>
     <h3>Windows</h3>
     <ol>
       <li>Double-click <span class="kbd">start-windows.bat</span> — installs deps and starts the proxy.</li>
-      <li>Open <strong>http://127.0.0.1:8081/</strong> for the dashboard.</li>
+      <li>Open <strong>http://127.0.0.1:8081/</strong> — same setup wizard as macOS.</li>
       <li>Prefer <strong>reverse</strong> mode for Claude Code and Cursor OpenAI BYOK (no CA install).</li>
       <li>Use <code>.venv\Scripts\python.exe</code> for all commands — not a global Python.</li>
     </ol>
@@ -189,10 +190,10 @@
 <pre>./install-to-applications.command
 open -a "Token Saver"</pre>
 <ul>
-  <li>Launch / Dock click opens <code>http://127.0.0.1:8081/?setup=1</code></li>
-  <li>If already running, Dock click only opens the dashboard</li>
-  <li>Logs: <code>~/Library/Logs/TokenSaver/proxy.log</code></li>
-  <li>Re-run the installer after moving the repo</li>
+  <li>First launch → setup wizard unless <strong>Don’t show this again</strong> was saved (<code>SKIP_SETUP=1</code>)</li>
+  <li>Dock click while open → focus existing dashboard tab, else open a new tab</li>
+  <li>Prefs: <code>.aiproxy_runtime.env</code> · Logs: <code>~/Library/Logs/TokenSaver/proxy.log</code></li>
+  <li>Re-run the installer after moving the repo · Dashboard <strong>Setup</strong> reopens the wizard anytime</li>
 </ul>
 
 <h2>2. Modes</h2>
@@ -290,6 +291,7 @@ cd C:\path\to\ai-token-saver
   <tr><td>Proxy</td><td>127.0.0.1:8080</td></tr>
   <tr><td>Dashboard</td><td>127.0.0.1:8081</td></tr>
   <tr><td>Config</td><td>config.yaml</td></tr>
+  <tr><td>Launcher prefs</td><td>.aiproxy_runtime.env / .aiproxy_session.env (SKIP_SETUP)</td></tr>
   <tr><td>Stats</td><td>logs/stats.json</td></tr>
   <tr><td>mitmproxy CA</td><td>~/.mitmproxy/… (Windows: %USERPROFILE%\.mitmproxy\)</td></tr>
   <tr><td>macOS app logs</td><td>~/Library/Logs/TokenSaver/proxy.log</td></tr>

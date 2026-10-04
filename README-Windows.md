@@ -6,7 +6,7 @@ Local proxy between **Cursor** / **Claude Code** and the model APIs. Strips bulk
 
 > **Python note:** Use the **Windows** Python launcher or `python.exe` to create the venv. After that, always run aiproxy with **`.venv\Scripts\python.exe`** (not a random global `python`) so deps resolve.
 >
-> Cross-platform overview: [README.md](README.md). Double-click `start-windows.bat` for the guided install.
+> Cross-platform overview (incl. macOS Dock app): [README.md](README.md). Double-click `start-windows.bat` for the guided install.
 
 ---
 
@@ -15,6 +15,8 @@ Local proxy between **Cursor** / **Claude Code** and the model APIs. Strips bulk
 **Easiest:** double-click [`start-windows.bat`](start-windows.bat)
 
 It opens a console, installs deps if needed, asks **Cursor / Claude / Both**, dry-run yes/no, then starts the proxy.
+
+Open the dashboard and use the in-browser **setup wizard** (same as macOS). After you save settings, **Don’t show this again** skips the wizard on later visits (`SKIP_SETUP=1` in `.aiproxy_runtime.env`). The dashboard **Setup** button always brings it back.
 
 Or manually in **PowerShell**:
 
@@ -244,6 +246,7 @@ If chats send but never reply, turn MITM off (remove `http.proxy*`) and use the 
 | Proxy | `127.0.0.1:8080` |
 | Dashboard | `127.0.0.1:8081` |
 | Config | `config.yaml` |
+| Launcher prefs | `.aiproxy_runtime.env` (saved) / `.aiproxy_session.env` (this run) |
 | Stats (persisted across launches) | `logs\stats.json` |
 | Body dumps | `logs\` |
 | mitmproxy CA | `%USERPROFILE%\.mitmproxy\mitmproxy-ca-cert.pem` |
