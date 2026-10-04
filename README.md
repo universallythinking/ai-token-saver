@@ -79,10 +79,13 @@ open -a "Token Saver"
 | Dock Quit | Stops proxy + dashboard processes |
 | Logs | `~/Library/Logs/TokenSaver/proxy.log` |
 | After moving the repo | Re-run the installer (refreshes `ProjectRoot` + icon) |
+| Other Mac / new icon | `git pull`, then re-run the installer — `/Applications` is not updated by git alone |
 
 The optional `tokensaver.local` port-80 forwarder is **not** stopped on Quit (system service).
 
 Allow **Token Saver → Chrome/Safari** under System Settings → Privacy & Security → Automation if Dock focus can’t switch tabs.
+
+**Icon still stale after install?** Quit Token Saver, re-run the installer (it clears the icon cache and restarts Dock), then drag **Token Saver** out of the Dock and back from `/Applications` if needed.
 
 ---
 

@@ -39,11 +39,36 @@ _apply_bundle_icon() {
   fi
   /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile applet" "$plist" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string applet" "$plist" 2>/dev/null || true
-  # osacompile's Assets.car + CFBundleIconName wins over .icns — remove the name.
+  # osacompile's Assets.car + CFBundleIconName wins over .icns — remove both.
   /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$plist" 2>/dev/null || true
+  rm -f "$res/Assets.car"
+  # Bump version so Launch Services / Dock treat this as a new icon binding.
+  local ver
+  ver="$(date -u +"%Y%m%d%H%M%S")"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${ver}" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${ver}" "$plist" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0.${ver}" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0.${ver}" "$plist" 2>/dev/null || true
   if command -v codesign >/dev/null 2>&1; then
     codesign --force --deep --sign - "$app" >/dev/null 2>&1 || true
   fi
+}
+
+_refresh_icon_cache() {
+  local app="$1"
+  [[ -d "$app" ]] || return 0
+  local lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  touch "$app" "$app/Contents/Info.plist" 2>/dev/null || true
+  if [[ -x "$lsregister" ]]; then
+    # Drop stale registration, then re-register (helps Dock keep old icons across machines).
+    "$lsregister" -u "$app" >/dev/null 2>&1 || true
+    "$lsregister" -f "$app" >/dev/null 2>&1 || true
+  fi
+  # Clear Finder/Dock icon services cache for this user (safe; regenerates on next paint).
+  rm -rf "${HOME}/Library/Caches/com.apple.iconservices.store" 2>/dev/null || true
+  find "${HOME}/Library/Caches" -maxdepth 1 -name 'com.apple.iconservices*' -exec rm -rf {} + 2>/dev/null || true
+  killall Dock >/dev/null 2>&1 || true
+  killall Finder >/dev/null 2>&1 || true
 }
 
 _set_finder_icon() {
@@ -94,12 +119,11 @@ fi
 _apply_bundle_icon "$APP_TMP"
 
 echo "Installing to ${DEST} …"
+# Quit running copy so Dock drops the old icon binding.
+osascript -e 'tell application "Token Saver" to quit' >/dev/null 2>&1 || true
+sleep 0.3
 rm -rf "$DEST"
 ditto "$APP_TMP" "$DEST"
-touch "$DEST"
-if [[ -x /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister ]]; then
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST" >/dev/null 2>&1 || true
-fi
 
 # Repo copy for reference (machine-local ProjectRoot — gitignored).
 REPO_APP="${MACOS_DIR}/${APP_NAME}"
@@ -122,10 +146,13 @@ _apply_bundle_icon "$INSTALLER_TMP"
 INSTALLER_DEST="${ROOT}/${INSTALLER_NAME}"
 rm -rf "$INSTALLER_DEST"
 ditto "$INSTALLER_TMP" "$INSTALLER_DEST"
-touch "$INSTALLER_DEST"
 
 _set_finder_icon "$ROOT/install-to-applications.command"
 _set_finder_icon "$INSTALLER_DEST"
+
+echo "Refreshing Dock / Finder icon cache …"
+_refresh_icon_cache "$DEST"
+_refresh_icon_cache "$INSTALLER_DEST"
 
 echo
 echo "Installed:  ${DEST}"
@@ -139,6 +166,8 @@ echo "Quit:       Dock → Quit  (stops proxy + dashboard)"
 echo
 echo "Prefs:      ${ROOT}/.aiproxy_runtime.env  (from start-mac.command)"
 echo "Logs:       ~/Library/Logs/TokenSaver/proxy.log"
+echo
+echo "Other Mac:  git pull, then re-run this installer (Dock does not update from git alone)."
 echo
 if [[ ! -x "$ROOT/.venv/bin/python" ]]; then
   echo "Note: .venv not ready yet — double-click start-mac.command once, then open Token Saver."
