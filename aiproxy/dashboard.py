@@ -949,7 +949,7 @@ function applyView(d) {
   const rateMax = Number(d.usd_per_mtok_max || d.usd_per_mtok || 3);
   document.getElementById("usd-actual").textContent = fmtUsd(usdPerHourActual) + "/hr";
   document.getElementById("usd-actual-sub").textContent =
-    fmtUsd(usdActual) + " total · " + fmtUsd(usdPerReqActual) + "/req · @$" + rateActual.toFixed(2) + "/MTok · " + rateNote;
+    fmtUsd(usdActual) + " total · " + fmtUsd(usdPerReqActual) + "/req · @$" + rateActual.toFixed(2) + "/MTok blend · " + rateNote;
   document.getElementById("usd-max").textContent = fmtUsd(usdPerHourMax) + "/hr";
   document.getElementById("usd-max-sub").textContent =
     fmtUsd(usdMax) + " total · " + fmtUsd(usdPerReqMax) + "/req · @$" + rateMax.toFixed(2) + "/MTok (" + rateModel + ") · " + rateNote;

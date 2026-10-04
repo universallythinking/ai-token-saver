@@ -131,11 +131,9 @@ def is_priceable(model: str) -> bool:
     return any(key in m for key in (k for k, _ in _INPUT_USD_PER_MTOK))
 
 
-def rate_usd_per_mtok(model: str) -> float:
-    """Best-match input USD per 1M tokens for a model id."""
+def _lookup_rate(model: str) -> float:
+    """Substring match against the price table (no placeholder substitution)."""
     m = (model or "").lower()
-    if m in {"", "unknown", "default"}:
-        m = _ASSUMED_MODEL.lower()
     if not m:
         return FALLBACK_USD_PER_MTOK
     best_key = ""
@@ -147,11 +145,40 @@ def rate_usd_per_mtok(model: str) -> float:
     return best_rate
 
 
+def rate_usd_per_mtok(model: str) -> float:
+    """Best-match input USD per 1M tokens (placeholders → assume_model)."""
+    m = (model or "").lower()
+    if m in {"", "unknown", "default"}:
+        return _lookup_rate(_ASSUMED_MODEL) if _ASSUMED_MODEL else FALLBACK_USD_PER_MTOK
+    return _lookup_rate(m)
+
+
+def rate_usd_per_mtok_actual(model: str) -> float:
+    """Rate for the *actual* estimate.
+
+    - concrete model id → that model's list price
+    - ``default`` (Cursor placeholder) → ``assume_model`` (what you said you use)
+    - ``unknown`` (unidentified) → mid-tier fallback, not the max assume
+    """
+    m = (model or "").lower()
+    if m in {"", "unknown"}:
+        return FALLBACK_USD_PER_MTOK
+    if m == "default":
+        return _lookup_rate(_ASSUMED_MODEL) if _ASSUMED_MODEL else FALLBACK_USD_PER_MTOK
+    return _lookup_rate(m)
+
+
 def estimate_usd(tokens: int, model: str) -> float:
     """Estimate USD for a token count at the model's input list price."""
     if tokens <= 0:
         return 0.0
     return tokens * rate_usd_per_mtok(model) / 1_000_000.0
+
+
+def estimate_usd_actual(tokens: int, model: str) -> float:
+    if tokens <= 0:
+        return 0.0
+    return tokens * rate_usd_per_mtok_actual(model) / 1_000_000.0
 
 
 def max_rate_usd_per_mtok(
@@ -200,9 +227,9 @@ def actual_usd_saved(
 ) -> tuple[float, float]:
     """Per-model priced savings (actual) and effective blended $/MTok.
 
-    Each model's ``tokens_saved`` is priced at that model's input rate.
-    ``unknown`` / ``default`` rows use ``assume_model`` (or the fallback rate).
-    Any ``tokens_saved`` not covered by by_model is priced the same way.
+    Concrete models use their list price; Cursor ``default`` uses assume_model;
+    true ``unknown`` uses the mid-tier fallback (not the max). Unattributed
+    remainder is treated as unknown.
     Returns ``(usd, blended_usd_per_mtok)``.
     """
     by_model = by_model or {}
@@ -212,18 +239,17 @@ def actual_usd_saved(
         tok = max(0, int(st.get("tokens_saved") or 0))
         if tok <= 0:
             continue
-        usd += estimate_usd(tok, model)
+        usd += estimate_usd_actual(tok, model)
         priced_tok += tok
 
     target = int(tokens_saved) if tokens_saved is not None else priced_tok
     remainder = max(0, target - priced_tok)
     if remainder:
-        # Unattributed tokens → assume_model / fallback (same as unknown).
-        usd += estimate_usd(remainder, "unknown")
+        usd += estimate_usd_actual(remainder, "unknown")
         priced_tok += remainder
 
     if priced_tok <= 0:
-        return 0.0, rate_usd_per_mtok("unknown")
+        return 0.0, FALLBACK_USD_PER_MTOK
     blended = (usd / priced_tok) * 1_000_000.0
     return round(usd, 4), round(blended, 4)
 
