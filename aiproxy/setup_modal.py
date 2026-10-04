@@ -153,12 +153,50 @@ SETUP_MODAL_ASSETS = r"""
 
   function setErr(msg) { errEl.textContent = msg || ""; }
 
+  function savedSummary() {
+    const s = (payload && payload.saved) || {};
+    if (!s.exists) return "";
+    const labels = { 1: "Cursor", 2: "Claude Code", 3: "Both" };
+    const appLabel = labels[s.app] || ("app " + s.app);
+    const mode = s.dry_run ? "dry-run" : "live strip";
+    return appLabel + " · " + mode + (s.saved_at ? " · saved " + s.saved_at : "");
+  }
+
+  async function applySettings() {
+    nextBtn.disabled = true;
+    nextBtn.textContent = "Applying…";
+    const useQuick = app === 4;
+    const saved = (payload && payload.saved) || {};
+    try {
+      const res = await fetch("/api/setup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          app: useQuick ? 4 : app,
+          dry_run: useQuick ? !!saved.dry_run : dryRun,
+          save: useQuick ? false : savePrefs,
+          restart: true,
+          quick_start: useQuick,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || ("setup " + res.status));
+      closeModal();
+      const meta = document.getElementById("meta");
+      if (meta) meta.innerHTML = '<span class="live"></span>' + (data.message || "Settings applied");
+    } catch (e) {
+      setErr(String(e.message || e));
+      nextBtn.disabled = false;
+      nextBtn.textContent = useQuick ? "Apply saved settings" : "Apply & restart";
+    }
+  }
+
   function render() {
     setErr("");
     backBtn.style.visibility = step === 0 ? "hidden" : "visible";
     nextBtn.disabled = false;
     if (step === 0) {
-      stepEl.textContent = "Step 1 of 4";
+      stepEl.textContent = quickStart ? "Quick start" : "Step 1 of 4";
       ledeEl.textContent = "Which app are you connecting?";
       const choices = (payload && payload.choices) || [];
       bodyEl.innerHTML = '<div class="ts-choices" id="ts-app-choices"></div>';
@@ -168,14 +206,28 @@ SETUP_MODAL_ASSETS = r"""
         btn.type = "button";
         btn.className = "ts-choice" + (app === c.id ? " active" : "");
         btn.disabled = c.id === 4 && !c.available;
-        btn.innerHTML = "<strong>" + c.id + ") " + c.label + "</strong><span>" +
-          (c.id === 4 && !c.available
-            ? "Save settings after setup — none saved yet"
-            : c.detail) + "</span>";
+        let detail = c.detail;
+        if (c.id === 4) {
+          detail = c.available
+            ? ("Use saved: " + savedSummary())
+            : "Save settings after setup — none saved yet";
+        }
+        btn.innerHTML = "<strong>" + c.id + ") " + c.label + "</strong><span>" + detail + "</span>";
         btn.onclick = () => { app = c.id; quickStart = c.id === 4; render(); };
         root.appendChild(btn);
       });
-      nextBtn.textContent = "Continue";
+      if (quickStart) {
+        const sum = savedSummary();
+        if (sum) {
+          bodyEl.insertAdjacentHTML(
+            "beforeend",
+            '<div class="ts-note">Applies saved settings now — no further prompts.\n\n' + sum + "</div>"
+          );
+        }
+        nextBtn.textContent = "Apply saved settings";
+      } else {
+        nextBtn.textContent = "Continue";
+      }
     } else if (step === 1) {
       stepEl.textContent = "Step 2 of 4";
       ledeEl.textContent = "Dry-run first? (log savings, do not rewrite bodies)";
@@ -221,54 +273,47 @@ SETUP_MODAL_ASSETS = r"""
     const res = await fetch("/api/setup", { cache: "no-store" });
     if (!res.ok) throw new Error("setup " + res.status);
     payload = await res.json();
+    step = 0;
+    quickStart = false;
+    savePrefs = true;
     if (payload.prefs) {
       app = Number(payload.prefs.app || 1);
+      if (app === 4) app = 1;
       dryRun = !!payload.prefs.dry_run;
+    } else {
+      app = 1;
+      dryRun = true;
     }
     render();
     openModal();
   }
 
-  backBtn.onclick = () => { if (step > 0) { step -= 1; render(); } };
+  backBtn.onclick = () => {
+    if (step > 0) {
+      step -= 1;
+      if (step === 0) quickStart = app === 4;
+      render();
+    }
+  };
   skipBtn.onclick = () => closeModal();
   nextBtn.onclick = async () => {
     setErr("");
-    if (step < 3) {
-      if (step === 0 && app === 4 && payload && payload.choices) {
-        const qs = payload.choices.find((c) => c.id === 4);
-        if (qs && !qs.available) {
-          setErr("No saved settings yet. Pick Cursor, Claude Code, or Both once.");
-          return;
-        }
+    // Quick start (saved): apply immediately — skip dry-run / CA / save prompts.
+    if (step === 0 && app === 4) {
+      const qs = payload && payload.choices && payload.choices.find((c) => c.id === 4);
+      if (!qs || !qs.available) {
+        setErr("No saved settings yet. Pick Cursor, Claude Code, or Both once.");
+        return;
       }
+      await applySettings();
+      return;
+    }
+    if (step < 3) {
       step += 1;
       render();
       return;
     }
-    nextBtn.disabled = true;
-    nextBtn.textContent = "Applying…";
-    try {
-      const res = await fetch("/api/setup", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          app,
-          dry_run: dryRun,
-          save: savePrefs,
-          restart: true,
-          quick_start: app === 4,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || ("setup " + res.status));
-      closeModal();
-      const meta = document.getElementById("meta");
-      if (meta) meta.innerHTML = '<span class="live"></span>' + (data.message || "Settings applied");
-    } catch (e) {
-      setErr(String(e.message || e));
-      nextBtn.disabled = false;
-      nextBtn.textContent = "Apply & restart";
-    }
+    await applySettings();
   };
 
   window.TokenSaverSetup = { open: () => { step = 0; load().catch((e) => setErr(String(e))); } };

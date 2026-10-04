@@ -261,6 +261,27 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
     .chart, .pie-wrap { break-inside: avoid; }
     a { text-decoration: none; color: inherit; }
   }
+  .lifetime {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 1100px) { .lifetime { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 700px) { .lifetime { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .lifetime { grid-template-columns: 1fr; } }
+  .lifetime .stat {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .section-label {
+    margin: 0 0 8px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
   .hero {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
@@ -515,6 +536,36 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
       </div>
     </div>
 
+    <p class="section-label">Lifetime totals · all time (persisted)</p>
+    <section class="lifetime" aria-label="Lifetime savings">
+      <div class="panel stat">
+        <label>Lifetime tokens saved</label>
+        <div class="v saved" id="life-tokens-saved">0</div>
+        <div class="sub" id="life-token-pct">0% removed</div>
+      </div>
+      <div class="panel stat">
+        <label>Lifetime $ saved (actual)</label>
+        <div class="v pct" id="life-usd-actual">$0</div>
+        <div class="sub" id="life-usd-actual-sub">all-time total</div>
+      </div>
+      <div class="panel stat">
+        <label>Lifetime $ saved (max)</label>
+        <div class="v saved" id="life-usd-max">$0</div>
+        <div class="sub" id="life-usd-max-sub">all-time total</div>
+      </div>
+      <div class="panel stat">
+        <label>Lifetime chars saved</label>
+        <div class="v pct" id="life-chars-saved">0</div>
+        <div class="sub" id="life-char-pct">0% removed</div>
+      </div>
+      <div class="panel stat">
+        <label>Lifetime requests</label>
+        <div class="v in" id="life-volume">0</div>
+        <div class="sub" id="life-volume-sub">0 tok in · 0 stripped</div>
+      </div>
+    </section>
+
+    <p class="section-label">Window · filtered by toolbar</p>
     <section class="hero">
       <div class="panel stat">
         <label>Tokens saved</label>
@@ -1105,8 +1156,37 @@ function applyView(d) {
   setText("m-noise-sub", fmtFull(tAll.ignored || 0) + " ignored · " + fmtFull(tAll.passthrough || 0) + " pass");
   setText("m-blocked", fmtFull(tAll.blocked || 0));
   setText("m-blocked-sub", fmtFull(tAll.unchanged || 0) + " unchanged");
-  setText("m-life-saved", fmtFull(tAll.tokens_saved || 0));
-  setText("m-life-saved-sub", fmtFull(tAll.requests || 0) + " lifetime req");
+  // Lifetime aggregate totals (persisted all-time — never rates/averages).
+  const lifeTokIn = Number(tAll.tokens_in || 0);
+  const lifeTokSaved = Number(tAll.tokens_saved || 0);
+  const lifeCharIn = Number(tAll.chars_in || 0);
+  const lifeCharSaved = Number(tAll.chars_saved || 0);
+  const lifeTokPct = lifeTokIn ? round2(100 * lifeTokSaved / lifeTokIn) : 0;
+  const lifeCharPct = lifeCharIn ? round2(100 * lifeCharSaved / lifeCharIn) : 0;
+  const lifeReqs = Number(tAll.requests || 0);
+  const lifeStripped = Number(tAll.stripped || 0);
+  const lifeSpan = lifeDays > 0
+    ? lifeDays + "d tracked"
+    : (Math.floor((d.lifetime_s || 0) / 3600) + "h tracked");
+  setText("life-tokens-saved", fmtFull(lifeTokSaved));
+  setText("life-token-pct", lifeTokPct + "% of " + fmtFull(lifeTokIn) + " tok requested · " + lifeSpan);
+  setText("life-chars-saved", fmtFull(lifeCharSaved));
+  setText("life-char-pct", lifeCharPct + "% of " + fmtFull(lifeCharIn) + " chars requested");
+  setText("life-usd-actual", fmtUsd(lifeActual));
+  setText("life-usd-actual-sub", "all-time total · " + lifeSpan);
+  setText("life-usd-max", fmtUsd(lifeMax));
+  setText("life-usd-max-sub", "all-time total · ceiling @" + rateModel);
+  setText("life-volume", fmtFull(lifeReqs));
+  setText("life-volume-sub",
+    fmtFull(lifeTokIn) + " tok in · " + fmtFull(lifeStripped) + " stripped · " + lifeSpan);
+  setText("m-life-saved", fmtFull(lifeTokSaved));
+  setText("m-life-saved-sub", fmtFull(lifeReqs) + " req · " + lifeSpan);
+  setText("m-life-usd-actual", fmtUsd(lifeActual));
+  setText("m-life-usd-actual-sub", "all-time total · " + lifeSpan);
+  setText("m-life-usd-max", fmtUsd(lifeMax));
+  setText("m-life-usd-max-sub", "all-time total · ceiling @" + rateModel);
+  setText("m-life-chars", fmtFull(lifeCharSaved));
+  setText("m-life-chars-sub", lifeCharPct + "% of " + fmtFull(lifeCharIn) + " chars");
   setText("m-uptime", mins + "m");
   setText("m-uptime-sub", lifeDays > 0 ? lifeDays + "d lifetime span" : "this process");
 }

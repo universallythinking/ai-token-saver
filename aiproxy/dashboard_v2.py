@@ -256,6 +256,32 @@ HTML_HEAD = r"""<!DOCTYPE html>
     a { text-decoration: none; color: inherit; }
   }
 
+  .section-label {
+    margin: 0 0 8px;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .lifetime {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
+  }
+  @media (max-width: 1100px) { .lifetime { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 700px) { .lifetime { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .lifetime { grid-template-columns: 1fr; } }
+  .lifetime .feat { background: #0a7a68; }
+  html[data-theme="dark"] .lifetime .feat { background: #0f3d34; }
+  .lifetime .feat .v.mint { color: #e8fff8; }
+  .lifetime .feat .v.hot { color: #ffd2c2; }
+  .lifetime .feat .v.cool { color: #cfe4ff; }
+
   /* Featured KPIs — dark band, distinct from v1 soft cards */
   .featured {
     display: grid;
@@ -568,6 +594,36 @@ HTML_HEAD = r"""<!DOCTYPE html>
       </div>
     </div>
 
+    <p class="section-label">Lifetime totals · all time (persisted)</p>
+    <section class="lifetime" aria-label="Lifetime savings">
+      <div class="feat">
+        <label>Lifetime tokens saved</label>
+        <div class="v mint" id="life-tokens-saved">0</div>
+        <div class="sub" id="life-token-pct">0% removed</div>
+      </div>
+      <div class="feat">
+        <label>Lifetime $ saved (actual)</label>
+        <div class="v cool" id="life-usd-actual">$0</div>
+        <div class="sub" id="life-usd-actual-sub">all-time total</div>
+      </div>
+      <div class="feat">
+        <label>Lifetime $ saved (max)</label>
+        <div class="v hot" id="life-usd-max">$0</div>
+        <div class="sub" id="life-usd-max-sub">all-time total</div>
+      </div>
+      <div class="feat">
+        <label>Lifetime chars saved</label>
+        <div class="v mint" id="life-chars-saved">0</div>
+        <div class="sub" id="life-char-pct">0% removed</div>
+      </div>
+      <div class="feat">
+        <label>Lifetime requests</label>
+        <div class="v cool" id="life-volume">0</div>
+        <div class="sub" id="life-volume-sub">0 tok in · 0 stripped</div>
+      </div>
+    </section>
+
+    <p class="section-label">Window · filtered by toolbar</p>
     <section class="featured" aria-label="Primary KPIs">
       <div class="feat">
         <label>Tokens saved</label>
@@ -663,9 +719,24 @@ HTML_HEAD = r"""<!DOCTYPE html>
         <div class="sub" id="m-blocked-sub">0 unchanged</div>
       </div>
       <div class="stat mint">
-        <label>Lifetime saved</label>
+        <label>Lifetime tokens</label>
         <div class="v saved" id="m-life-saved">0</div>
         <div class="sub" id="m-life-saved-sub">0 lifetime req</div>
+      </div>
+      <div class="stat">
+        <label>Lifetime $ actual</label>
+        <div class="v in" id="m-life-usd-actual">$0</div>
+        <div class="sub" id="m-life-usd-actual-sub">all-time total</div>
+      </div>
+      <div class="stat alt">
+        <label>Lifetime $ max</label>
+        <div class="v pct" id="m-life-usd-max">$0</div>
+        <div class="sub" id="m-life-usd-max-sub">all-time total</div>
+      </div>
+      <div class="stat mint">
+        <label>Lifetime chars</label>
+        <div class="v saved" id="m-life-chars">0</div>
+        <div class="sub" id="m-life-chars-sub">0% removed</div>
       </div>
       <div class="stat">
         <label>Uptime</label>
