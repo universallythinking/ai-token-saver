@@ -35,25 +35,18 @@ def test_trims_old_messages_and_keeps_system():
 
 
 def test_truncates_tool_results():
-    # Older tool turns stay tightly capped; recent explore results keep more.
-    cfg = StripConfig(
-        max_tool_result_chars=50,
-        max_messages=24,
-        recent_turn_window=1,
-    )
+    cfg = StripConfig(max_tool_result_chars=50)
     body = {
         "messages": [
             {"role": "user", "content": "hi"},
-            {"role": "tool", "content": "x" * 500},  # older
-            {"role": "user", "content": "thanks"},
-            {"role": "tool", "content": "y" * 500},  # recent
+            {"role": "tool", "content": "x" * 500},
         ]
     }
     result = strip_payload(body, cfg)
     assert result.changed
-    old_tool = result.stripped["messages"][1]["content"]
-    assert len(old_tool) < 200
-    assert "tool_result" in old_tool or "removed" in old_tool
+    tool = result.stripped["messages"][1]["content"]
+    assert len(tool) < 200
+    assert "tool_result" in tool or "removed" in tool
 
 
 def test_responses_input_path():

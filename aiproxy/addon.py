@@ -72,18 +72,13 @@ class CursorStripAddon:
 
     def requestheaders(self, flow: http.HTTPFlow) -> None:
         """
-        Buffer intercept-host request bodies so we can count + strip.
-        Noise / file-sync paths skip buffering — stream through immediately.
+        Always buffer intercept-host request bodies so we can count + strip.
+        (Streaming requests made bodies invisible → 0 tokens / 0 stripped.)
         Responses still stream — see responseheaders.
         """
         host = flow.request.pretty_host or ""
-        if not host_matches(host, self.config.intercept_hosts):
-            return
-        path = flow.request.path or ""
-        if path_is_noise(path) or path_is_sync(path):
-            flow.request.stream = True
-            return
-        flow.request.stream = False
+        if host_matches(host, self.config.intercept_hosts):
+            flow.request.stream = False
 
     def responseheaders(self, flow: http.HTTPFlow) -> None:
         """
@@ -325,8 +320,7 @@ class CursorStripAddon:
             ctx.log.info(
                 f"ws-no-op {host}{path}: {len(raw)} bytes / {before_chars} chars"
             )
-            # Rare large no-ops only — dumping every explore frame burns disk I/O.
-            if len(raw) >= 48_000:
+            if len(raw) >= 1024:
                 self._dump_raw_sample(host, f"ws{path}", raw, "websocket/binary")
 
     def _record_and_apply(

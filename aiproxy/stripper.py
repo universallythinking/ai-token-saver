@@ -195,16 +195,8 @@ def _strip_message_parts(
         "tool_result",
     }:
         text = _content_to_text(out.get("content", out.get("output")))
-        # Recent explore/search results: keep more context so the model does not
-        # re-run Grep/Read. Older tool turns still use the tight cap.
-        if old:
-            tool_cap = cfg.max_tool_result_chars
-        elif getattr(cfg, "preserve_explore_tools", True):
-            tool_cap = max(cfg.max_tool_result_chars, cfg.max_chars_recent)
-        else:
-            tool_cap = cfg.max_tool_result_chars
-        if len(text) > tool_cap:
-            text = _truncate(text, tool_cap, "tool_result")
+        if len(text) > cfg.max_tool_result_chars:
+            text = _truncate(text, cfg.max_tool_result_chars, "tool_result")
             if "content" in out:
                 _set_content(out, text)
             elif "output" in out:

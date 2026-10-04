@@ -1314,6 +1314,9 @@ def create_dashboard_app(store: StatsStore, config: "Config | None" = None) -> w
         dry_run = bool(data.get("dry_run", True))
         do_save = bool(data.get("save", True))
         do_restart = bool(data.get("restart", False))
+        skip_setup = data.get("skip_setup", None)
+        if skip_setup is not None:
+            skip_setup = bool(skip_setup)
         if bool(data.get("quick_start", False)):
             app_id = 4
 
@@ -1323,6 +1326,7 @@ def create_dashboard_app(store: StatsStore, config: "Config | None" = None) -> w
                 dry_run=dry_run,
                 config=cfg,
                 persist_quick_start=do_save,
+                skip_setup=skip_setup,
             )
         except ValueError as e:
             return web.json_response({"ok": False, "error": str(e)}, status=400)

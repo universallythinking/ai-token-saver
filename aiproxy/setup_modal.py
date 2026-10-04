@@ -86,7 +86,7 @@ SETUP_MODAL_ASSETS = r"""
     line-height: 1.4;
     white-space: pre-wrap;
   }
-  .ts-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .ts-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
   .ts-actions button {
     font: inherit;
     font-weight: 600;
@@ -106,6 +106,20 @@ SETUP_MODAL_ASSETS = r"""
     border: 0;
   }
   .ts-actions .primary:disabled { opacity: 0.5; cursor: wait; }
+  .ts-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-top: 4px;
+  }
+  .ts-noshow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 0.8rem; color: var(--ink-soft, #3a4a44);
+    user-select: none; cursor: pointer;
+  }
+  .ts-noshow input { width: 15px; height: 15px; accent-color: var(--accent, #0f7a5f); }
+  .ts-noshow.is-disabled {
+    opacity: 0.45; cursor: not-allowed; color: var(--muted, #6b7a73);
+  }
+  .ts-noshow.is-disabled input { cursor: not-allowed; }
   .ts-err { color: #b42318; font-size: 0.8rem; margin: 0 0 10px; min-height: 1.2em; }
 </style>
 <div class="ts-setup-overlay" id="ts-setup" role="dialog" aria-modal="true" aria-labelledby="ts-setup-title">
@@ -115,10 +129,16 @@ SETUP_MODAL_ASSETS = r"""
     <p class="ts-lede" id="ts-setup-lede"></p>
     <div id="ts-setup-body"></div>
     <p class="ts-err" id="ts-setup-err"></p>
-    <div class="ts-actions">
-      <button type="button" class="ghost" id="ts-setup-back">Back</button>
-      <button type="button" class="ghost" id="ts-setup-skip">Not now</button>
-      <button type="button" class="primary" id="ts-setup-next">Continue</button>
+    <div class="ts-footer">
+      <label class="ts-noshow is-disabled" id="ts-setup-noshow-wrap" title="Save settings once to enable">
+        <input type="checkbox" id="ts-setup-noshow" disabled />
+        <span>Don't show this again</span>
+      </label>
+      <div class="ts-actions">
+        <button type="button" class="ghost" id="ts-setup-back">Back</button>
+        <button type="button" class="ghost" id="ts-setup-skip">Not now</button>
+        <button type="button" class="primary" id="ts-setup-next">Continue</button>
+      </div>
     </div>
   </div>
 </div>
@@ -133,6 +153,8 @@ SETUP_MODAL_ASSETS = r"""
   const backBtn = document.getElementById("ts-setup-back");
   const skipBtn = document.getElementById("ts-setup-skip");
   const nextBtn = document.getElementById("ts-setup-next");
+  const noShowWrap = document.getElementById("ts-setup-noshow-wrap");
+  const noShowCb = document.getElementById("ts-setup-noshow");
 
   let payload = null;
   let step = 0; // 0 app, 1 dry-run, 2 ca, 3 save
@@ -140,6 +162,7 @@ SETUP_MODAL_ASSETS = r"""
   let dryRun = true;
   let savePrefs = true;
   let quickStart = false;
+  let skipSetup = false;
 
   function openModal() { overlay.classList.add("open"); }
   function closeModal() {
@@ -152,6 +175,29 @@ SETUP_MODAL_ASSETS = r"""
   }
 
   function setErr(msg) { errEl.textContent = msg || ""; }
+
+  function canSkipSetup() {
+    const savedOk = !!(payload && payload.saved && payload.saved.exists);
+    // Enabled once prefs exist, or when this apply will save them.
+    if (savedOk) return true;
+    if (step === 3 && savePrefs) return true;
+    return false;
+  }
+
+  function syncNoShow() {
+    const ok = canSkipSetup();
+    noShowCb.disabled = !ok;
+    noShowWrap.classList.toggle("is-disabled", !ok);
+    noShowWrap.title = ok
+      ? "Next launch opens the dashboard without this wizard"
+      : "Save settings once to enable";
+    if (!ok) {
+      noShowCb.checked = false;
+      skipSetup = false;
+    } else {
+      noShowCb.checked = !!skipSetup;
+    }
+  }
 
   function savedSummary() {
     const s = (payload && payload.saved) || {};
@@ -167,6 +213,7 @@ SETUP_MODAL_ASSETS = r"""
     nextBtn.textContent = "Applying…";
     const useQuick = app === 4;
     const saved = (payload && payload.saved) || {};
+    const wantSkip = canSkipSetup() && !!noShowCb.checked;
     try {
       const res = await fetch("/api/setup", {
         method: "POST",
@@ -174,9 +221,10 @@ SETUP_MODAL_ASSETS = r"""
         body: JSON.stringify({
           app: useQuick ? 4 : app,
           dry_run: useQuick ? !!saved.dry_run : dryRun,
-          save: useQuick ? false : savePrefs,
+          save: useQuick ? true : savePrefs,
           restart: true,
           quick_start: useQuick,
+          skip_setup: wantSkip,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -195,6 +243,7 @@ SETUP_MODAL_ASSETS = r"""
     setErr("");
     backBtn.style.visibility = step === 0 ? "hidden" : "visible";
     nextBtn.disabled = false;
+    syncNoShow();
     if (step === 0) {
       stepEl.textContent = quickStart ? "Quick start" : "Step 1 of 4";
       ledeEl.textContent = "Which app are you connecting?";
@@ -267,15 +316,18 @@ SETUP_MODAL_ASSETS = r"""
       });
       nextBtn.textContent = "Apply & restart";
     }
+    syncNoShow();
   }
 
-  async function load() {
+  async function load(opts) {
+    const force = !!(opts && opts.force);
     const res = await fetch("/api/setup", { cache: "no-store" });
     if (!res.ok) throw new Error("setup " + res.status);
     payload = await res.json();
     step = 0;
     quickStart = false;
     savePrefs = true;
+    skipSetup = !!(payload.skip_setup && payload.can_skip_setup);
     if (payload.prefs) {
       app = Number(payload.prefs.app || 1);
       if (app === 4) app = 1;
@@ -284,9 +336,23 @@ SETUP_MODAL_ASSETS = r"""
       app = 1;
       dryRun = true;
     }
+    // Auto-launch path: settings saved + "don't show again" — skip wizard.
+    if (!force && payload.skip_setup && payload.can_skip_setup) {
+      closeModal();
+      return;
+    }
     render();
     openModal();
   }
+
+  noShowCb.onchange = () => {
+    if (noShowCb.disabled) {
+      noShowCb.checked = false;
+      skipSetup = false;
+      return;
+    }
+    skipSetup = !!noShowCb.checked;
+  };
 
   backBtn.onclick = () => {
     if (step > 0) {
@@ -316,12 +382,15 @@ SETUP_MODAL_ASSETS = r"""
     await applySettings();
   };
 
-  window.TokenSaverSetup = { open: () => { step = 0; load().catch((e) => setErr(String(e))); } };
+  // Manual Setup button always shows the wizard (even if skip_setup is on).
+  window.TokenSaverSetup = {
+    open: () => { step = 0; load({ force: true }).catch((e) => setErr(String(e))); },
+  };
 
   const params = new URLSearchParams(location.search);
   const want = params.get("setup") === "1" || params.get("setup") === "true";
   if (want) {
-    load().catch((e) => { openModal(); setErr(String(e)); });
+    load({ force: false }).catch((e) => { openModal(); setErr(String(e)); });
   }
 })();
 </script>

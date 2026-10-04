@@ -69,6 +69,7 @@ fi
 APP=1
 MODE=mitm
 DRY_RUN=1
+SKIP_SETUP=0
 PREF_FILE="$ROOT/.aiproxy_runtime.env"
 SESSION_FILE="$ROOT/.aiproxy_session.env"
 _LOAD_FILE=""
@@ -84,8 +85,17 @@ if [[ -n "$_LOAD_FILE" ]]; then
       APP=*) APP="${line#APP=}" ;;
       MODE=*) MODE="${line#MODE=}" ;;
       DRY_RUN=*) DRY_RUN="${line#DRY_RUN=}" ;;
+      SKIP_SETUP=*) SKIP_SETUP="${line#SKIP_SETUP=}" ;;
     esac
   done <"$_LOAD_FILE"
+fi
+# Prefer persistent quick-start flag for skipping the setup modal.
+if [[ -f "$PREF_FILE" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      SKIP_SETUP=*) SKIP_SETUP="${line#SKIP_SETUP=}" ;;
+    esac
+  done <"$PREF_FILE"
 fi
 case "$APP" in
   2) MODE=anthropic ;;
@@ -96,6 +106,14 @@ case "$DRY_RUN" in
   0|1) ;;
   *) DRY_RUN=1 ;;
 esac
+case "$SKIP_SETUP" in
+  0|1) ;;
+  *) SKIP_SETUP=0 ;;
+esac
+# Only skip setup when saved prefs exist.
+if [[ "$SKIP_SETUP" == "1" && ! -f "$PREF_FILE" ]]; then
+  SKIP_SETUP=0
+fi
 
 export AIPROXY_CONFIG="$ROOT/config.yaml"
 export PYTHONUNBUFFERED=1
@@ -134,6 +152,10 @@ if [[ "$ok" -ne 1 ]]; then
   exit 1
 fi
 
-# Cold start only — setup modal once; later Dock clicks reuse the open tab.
-_open_dashboard setup
+# Cold start: setup wizard unless user chose "Don't show this again".
+if [[ "$SKIP_SETUP" == "1" ]]; then
+  _open_dashboard focus
+else
+  _open_dashboard setup
+fi
 exit 0

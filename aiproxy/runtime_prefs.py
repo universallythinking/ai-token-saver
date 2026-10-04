@@ -61,6 +61,7 @@ def default_prefs() -> dict[str, Any]:
         "dry_run": True,
         "exists": False,
         "saved_at": None,
+        "skip_setup": False,
     }
 
 
@@ -68,6 +69,7 @@ def _parse_prefs_file(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     app, mode, dry = 1, "mitm", True
+    skip_setup = False
     saved_at = None
     for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
         line = raw.strip()
@@ -82,6 +84,8 @@ def _parse_prefs_file(path: Path) -> dict[str, Any] | None:
             mode = line.split("=", 1)[1].strip() or "mitm"
         elif line.startswith("DRY_RUN="):
             dry = line.split("=", 1)[1].strip() == "1"
+        elif line.startswith("SKIP_SETUP="):
+            skip_setup = line.split("=", 1)[1].strip() == "1"
         elif line.startswith("SAVED_AT="):
             saved_at = line.split("=", 1)[1].strip() or None
     if app == 2:
@@ -97,6 +101,7 @@ def _parse_prefs_file(path: Path) -> dict[str, Any] | None:
         "dry_run": dry,
         "exists": True,
         "saved_at": saved_at,
+        "skip_setup": skip_setup,
         "path": str(path),
     }
 
@@ -136,7 +141,14 @@ def mode_for_app(app: int, *, saved: dict[str, Any] | None = None) -> str:
     return str(info["mode"] or "mitm")
 
 
-def _write_env(path: Path, *, app: int, mode: str, dry_run: bool) -> None:
+def _write_env(
+    path: Path,
+    *,
+    app: int,
+    mode: str,
+    dry_run: bool,
+    skip_setup: bool = False,
+) -> None:
     saved_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     path.write_text(
         (
@@ -144,6 +156,7 @@ def _write_env(path: Path, *, app: int, mode: str, dry_run: bool) -> None:
             f"APP={int(app)}\n"
             f"MODE={mode}\n"
             f"DRY_RUN={1 if dry_run else 0}\n"
+            f"SKIP_SETUP={1 if skip_setup else 0}\n"
             f"SAVED_AT={saved_at}\n"
         ),
         encoding="utf-8",
@@ -157,18 +170,28 @@ def save_prefs(
     config: Any | None = None,
     mode: str | None = None,
     persist_quick_start: bool = True,
+    skip_setup: bool | None = None,
 ) -> dict[str, Any]:
+    existing_saved = load_saved_prefs(config)
     if app == 4:
-        existing = load_saved_prefs(config)
-        if not existing.get("exists"):
+        if not existing_saved.get("exists"):
             raise ValueError("No saved settings yet — pick Cursor, Claude Code, or Both once.")
-        app = int(existing["app"])
-        mode = str(existing["mode"])
+        app = int(existing_saved["app"])
+        mode = str(existing_saved["mode"])
+        if skip_setup is None:
+            skip_setup = bool(existing_saved.get("skip_setup"))
     resolved_mode = mode or mode_for_app(app)
     if app == 2:
         resolved_mode = "anthropic"
     elif app in (1, 3):
         resolved_mode = "mitm"
+
+    # Preserve prior skip flag unless explicitly set; only meaningful with saved prefs.
+    if skip_setup is None:
+        skip_setup = bool(existing_saved.get("skip_setup"))
+    skip_setup = bool(skip_setup) and (
+        persist_quick_start or bool(existing_saved.get("exists"))
+    )
 
     # Session file always — so Mac start.sh / restart pick up this run.
     _write_env(
@@ -176,6 +199,7 @@ def save_prefs(
         app=app,
         mode=resolved_mode,
         dry_run=dry_run,
+        skip_setup=skip_setup,
     )
     if persist_quick_start:
         _write_env(
@@ -183,6 +207,18 @@ def save_prefs(
             app=app,
             mode=resolved_mode,
             dry_run=dry_run,
+            skip_setup=skip_setup,
+        )
+    elif skip_setup != bool(existing_saved.get("skip_setup")) and existing_saved.get(
+        "exists"
+    ):
+        # Allow toggling "don't show again" without rewriting the rest via save=false.
+        _write_env(
+            prefs_path(config),
+            app=int(existing_saved["app"]),
+            mode=str(existing_saved["mode"]),
+            dry_run=bool(existing_saved["dry_run"]),
+            skip_setup=skip_setup,
         )
     return load_prefs(config)
 
@@ -190,9 +226,13 @@ def save_prefs(
 def setup_payload(config: Any | None = None) -> dict[str, Any]:
     prefs = load_prefs(config)
     saved = load_saved_prefs(config)
+    can_skip_setup = bool(saved.get("exists"))
+    skip_setup = bool(saved.get("skip_setup")) and can_skip_setup
     return {
         "prefs": prefs,
         "saved": saved,
+        "can_skip_setup": can_skip_setup,
+        "skip_setup": skip_setup,
         "choices": [
             {
                 "id": i,

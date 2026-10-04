@@ -59,11 +59,6 @@ block_host_suffixes:
   - "segment.com"
   - "mixpanel.com"
 
-# Goals (in order — never trade a later goal away for a cheap earlier win):
-#   1. Quality  — keep the context the model needs to answer correctly
-#   2. Speed    — avoid re-Grep/re-Read loops and proxy stalls
-#   3. Efficiency — fewer round-trips / retries beat raw char deletion
-#   4. Tokens   — strip boilerplate, dupes, and opaque reasoning signatures
 strip:
   # Keep only the last N messages (messages[] or input[]). System/developer kept separately.
   max_messages: 24
@@ -89,11 +84,6 @@ strip:
   # Stub embedded file/code blobs inside agent WebSocket / RunSSE prompts.
   # (BidiAppend file-sync is never rewritten — that breaks replies.)
   max_bidi_file_chars: 2000
-
-  # On active Grep/Glob/Read tool-calls, keep more of each file (still stub
-  # huge dumps). Bare name mentions in source/allow-lists do not trigger this.
-  preserve_explore_tools: true
-  max_explore_file_chars: 48000
 
   # Remove noisy top-level keys Cursor / clients sometimes attach
   drop_keys:

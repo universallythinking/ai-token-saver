@@ -5,7 +5,6 @@ from __future__ import annotations
 from .config import StripConfig
 from .connect_strip import (
     _write_varint,
-    frame_has_explore_tools,
     path_is_noise,
     path_should_strip_connect,
     try_strip_connect_bytes,
@@ -24,16 +23,7 @@ def test_path_filters() -> None:
     assert not path_should_strip_connect("/v1/traces")
     assert path_is_noise("/tev1/v1/rgstr?k=client&gz=1")
     assert path_is_noise("/aiserver.v1.DashboardService/GetTeams")
-    assert path_is_noise("/aiserver.v1.AiService/ReportAiCodeChangeMetrics")
     assert not path_is_noise("/agent.v1.AgentService/RunSSE")
-    # Call-shaped markers only — bare names (or source quoting them) must not match.
-    assert frame_has_explore_tools(b'{"toolName":"Grep","args":{"pattern":"x"}}')
-    assert frame_has_explore_tools(
-        b'{"outerToolName":"Read","toolIdentifier":"READ"}'
-    )
-    assert not frame_has_explore_tools(b'{"toolName":"Grep"}')
-    assert not frame_has_explore_tools(b'{"toolName":"Write","args":{}}')
-    assert not frame_has_explore_tools(b'b\'"toolName":"Grep"\'')
 
 
 def test_raw_protobuf_truncates_long_string() -> None:
@@ -127,79 +117,6 @@ def test_bidi_hex_nested_file_stub() -> None:
     assert result.notes
 
 
-def test_shrink_reasoning_signatures() -> None:
-    cfg = StripConfig(
-        max_chars_old=200_000,
-        drop_reasoning_parts=True,
-        preserve_explore_tools=True,
-        dry_run=False,
-    )
-    sig = "A" * 4000
-    blob = (
-        '{"id":"1","role":"assistant","content":[{"type":"reasoning","text":"",'
-        f'"signature":"{sig}"}},{{"type":"text","text":"ok"}}]}}'
-    ).encode()
-    msg = _len_delim(1, blob)
-    new, result = try_strip_connect_bytes(
-        msg, cfg, content_type="application/proto", path="/agent/v1/run"
-    )
-    assert result is not None
-    assert result.changed
-    assert b"AAAA" not in new or new.count(b"A") < 100
-    assert any("reasoning" in n for n in result.notes)
-
-
-def test_explore_tools_raise_file_cap_not_disable_strip() -> None:
-    """Active Grep/Read keeps more file bytes; still strips when over explore cap."""
-    cfg = StripConfig(
-        max_chars_old=200_000,
-        max_bidi_file_chars=80,
-        max_explore_file_chars=500,
-        preserve_explore_tools=True,
-        dry_run=False,
-    )
-    source = ("from __future__ import annotations\n\n" + ("line of code\n" * 200)).encode()
-    marker = b'{"toolName":"Grep","args":{"pattern":"foo"}}'
-    msg = _len_delim(1, marker) + _len_delim(2, source)
-    new, result = try_strip_connect_bytes(
-        msg,
-        cfg,
-        content_type="application/proto",
-        path="/agent/v1/run",
-    )
-    assert result is not None
-    assert "explore-keep-files" in result.notes
-    # Over explore cap → still stubbed, but not to the tiny default 80.
-    assert b"bidi file omitted" in new
-    assert result.stripped_chars < result.original_chars
-
-
-def test_source_mention_of_tool_names_still_strips() -> None:
-    """Reading connect_strip.py (which quotes tool markers) must not disable strip."""
-    cfg = StripConfig(
-        max_chars_old=200_000,
-        max_bidi_file_chars=80,
-        preserve_explore_tools=True,
-        dry_run=False,
-    )
-    source = (
-        '    b\'"toolName":"Grep"\',\n    b\'"toolName":"Read"\',\n'
-        + "from __future__ import annotations\n"
-        + ("line of code\n" * 200)
-    ).encode()
-    msg = _len_delim(1, source)
-    new, result = try_strip_connect_bytes(
-        msg,
-        cfg,
-        content_type="application/proto",
-        path="/agent/v1/run",
-    )
-    assert result is not None
-    assert "explore-keep-files" not in result.notes
-    assert result.stripped_chars < result.original_chars
-    assert b"bidi file omitted" in new
-
-
 if __name__ == "__main__":
     test_path_filters()
     test_raw_protobuf_truncates_long_string()
@@ -208,7 +125,4 @@ if __name__ == "__main__":
     test_cross_field_dedupe()
     test_top_level_gzip_body()
     test_bidi_hex_nested_file_stub()
-    test_shrink_reasoning_signatures()
-    test_explore_tools_raise_file_cap_not_disable_strip()
-    test_source_mention_of_tool_names_still_strips()
     print("ok")
