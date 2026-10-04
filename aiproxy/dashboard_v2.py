@@ -543,6 +543,7 @@ HTML_HEAD = r"""<!DOCTYPE html>
           <a href="/">v1</a>
           <a href="/v2" class="active" aria-current="page">v2</a>
         </nav>
+        <button class="ghost" id="setup" type="button">Setup</button>
         <button class="ghost" id="theme" type="button" aria-label="Toggle dark theme">Dark</button>
         <button class="ghost" id="export-pdf" type="button">Export PDF</button>
         <button class="primary" id="reset" type="button">Reset</button>

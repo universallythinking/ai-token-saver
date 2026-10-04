@@ -49,5 +49,7 @@ fi
 # Generic leftovers on default ports from aiproxy label (best-effort, loopback only).
 # Do NOT touch the tokensaver.local LaunchDaemon (port_alias) — that stays installed.
 
-osascript -e 'display notification "Proxy stopped" with title "Token Saver"' >/dev/null 2>&1 || true
+if [[ "${STOP_QUIET:-0}" != "1" ]]; then
+  osascript -e 'display notification "Proxy stopped" with title "Token Saver"' >/dev/null 2>&1 || true
+fi
 exit 0

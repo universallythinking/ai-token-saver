@@ -72,6 +72,7 @@ class Config:
         strip_raw = raw.get("strip") or {}
         log_raw = raw.get("logging") or {}
         pricing_raw = raw.get("pricing") or {}
+        base = path.parent if path.exists() else Path(__file__).resolve().parent.parent
 
         return cls(
             listen_host=raw.get("listen_host", "127.0.0.1"),
@@ -108,7 +109,10 @@ class Config:
             ),
             logging=LogConfig(
                 level=str(log_raw.get("level", "INFO")),
-                dump_dir=str(log_raw.get("dump_dir", "logs")),
+                dump_dir=_resolve_stats_path(
+                    str(log_raw.get("dump_dir", "logs")),
+                    base=base,
+                ),
                 dump_bodies=bool(log_raw.get("dump_bodies", True)),
                 dump_only_when_stripped=bool(
                     log_raw.get("dump_only_when_stripped", True)
@@ -119,13 +123,13 @@ class Config:
             ),
             stats_path=_resolve_stats_path(
                 str(raw.get("stats_path", "logs/stats.json")),
-                base=path.parent if path.exists() else Path(__file__).resolve().parent.parent,
+                base=base,
             ),
         )
 
 
 def _resolve_stats_path(stats_path: str, *, base: Path) -> str:
-    """Make stats_path absolute relative to the config file (not cwd)."""
+    """Make a config path absolute relative to the config file (not cwd)."""
     p = Path(stats_path).expanduser()
     if not p.is_absolute():
         p = base / p

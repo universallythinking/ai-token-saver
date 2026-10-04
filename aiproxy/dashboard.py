@@ -9,6 +9,7 @@ from aiohttp import web
 
 from .stats import StatsStore
 from .dashboard_v2 import HTML_HEAD as DASHBOARD_HTML_V2_HEAD
+from .setup_modal import SETUP_MODAL_ASSETS
 
 if TYPE_CHECKING:
     from .config import Config
@@ -489,6 +490,7 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
         <p class="lede">Classic view — token savings, trends, and mix charts.</p>
       </div>
       <div class="actions">
+        <button class="ghost" id="setup" type="button">Setup</button>
         <a class="ghost" id="goto-v2" href="/v2">v2 →</a>
         <button class="ghost" id="theme" type="button" aria-label="Toggle dark theme">Dark</button>
         <button class="ghost" id="export-pdf" type="button">Export PDF</button>
@@ -1147,6 +1149,13 @@ async function refresh() {
 document.getElementById("theme").onclick = () => {
   applyTheme(currentTheme() === "dark" ? "light" : "dark");
 };
+const setupBtn = document.getElementById("setup");
+if (setupBtn) {
+  setupBtn.onclick = () => {
+    if (window.TokenSaverSetup) window.TokenSaverSetup.open();
+    else location.search = "setup=1";
+  };
+}
 document.getElementById("export-pdf").onclick = async () => {
   const btn = document.getElementById("export-pdf");
   const prev = btn.textContent;
@@ -1178,20 +1187,23 @@ window.addEventListener("resize", () => { if (lastPayload) applyView(lastPayload
 
 DASHBOARD_HTML = DASHBOARD_HTML_HEAD + DASHBOARD_JS + r"""
 </script>
+""" + SETUP_MODAL_ASSETS + r"""
 </body>
 </html>
 """
 
 DASHBOARD_HTML_V2 = DASHBOARD_HTML_V2_HEAD + DASHBOARD_JS + r"""
 </script>
+""" + SETUP_MODAL_ASSETS + r"""
 </body>
 </html>
 """
 
 
-def create_dashboard_app(store: StatsStore) -> web.Application:
+def create_dashboard_app(store: StatsStore, config: "Config | None" = None) -> web.Application:
     app = web.Application()
     app["store"] = store
+    app["config"] = config
 
     async def index(_: web.Request) -> web.Response:
         return web.Response(text=DASHBOARD_HTML, content_type="text/html")
@@ -1206,10 +1218,51 @@ def create_dashboard_app(store: StatsStore) -> web.Application:
         request.app["store"].reset()
         return web.json_response({"ok": True})
 
+    async def api_setup(request: web.Request) -> web.Response:
+        from .runtime_prefs import restart_proxy, save_prefs, setup_payload
+
+        cfg = request.app.get("config")
+        if request.method == "GET":
+            return web.json_response(setup_payload(cfg))
+
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+
+        app_id = int(data.get("app") or 1)
+        dry_run = bool(data.get("dry_run", True))
+        do_save = bool(data.get("save", True))
+        do_restart = bool(data.get("restart", False))
+        if bool(data.get("quick_start", False)):
+            app_id = 4
+
+        try:
+            prefs = save_prefs(
+                app=app_id,
+                dry_run=dry_run,
+                config=cfg,
+                persist_quick_start=do_save,
+            )
+        except ValueError as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+        except OSError as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        message = "Settings saved."
+        restarted = False
+        if do_restart:
+            restarted, message = restart_proxy(cfg)
+        return web.json_response(
+            {"ok": True, "prefs": prefs, "restarted": restarted, "message": message}
+        )
+
     app.router.add_get("/", index)
     app.router.add_get("/v2", index_v2)
     app.router.add_get("/api/stats", api_stats)
     app.router.add_post("/api/reset", api_reset)
+    app.router.add_get("/api/setup", api_setup)
+    app.router.add_post("/api/setup", api_setup)
     return app
 
 
@@ -1223,7 +1276,7 @@ def start_dashboard_background(config: "Config", store: StatsStore) -> threading
     def runner() -> None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        app = create_dashboard_app(store)
+        app = create_dashboard_app(store, config)
 
         async def _start() -> None:
             runner_ = web.AppRunner(app)

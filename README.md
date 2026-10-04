@@ -65,9 +65,11 @@ chmod +x macos/install-to-applications.sh macos/start.sh macos/stop.sh
 open -a "Token Saver"
 ```
 
-- Uses prefs from `.aiproxy_runtime.env` (Quick start in `start-mac.command`)
+- Uses prefs from `.aiproxy_runtime.env` / session (Quick start in `start-mac.command`)
+- On launch, opens **http://127.0.0.1:8081/?setup=1** (loopback — reliable). `tokensaver.local` needs the port-80 alias (`--install-hostname`)
+- If the proxy is already running, the Dock app **only opens the dashboard** (does not restart/kill it)
 - Logs: `~/Library/Logs/TokenSaver/proxy.log`
-- Re-run `install-to-applications.sh` after moving the repo
+- Re-run `install-to-applications.sh` after moving the repo (also refreshes the Dock icon)
 - Does **not** stop the optional `tokensaver.local` port-80 forwarder (that stays as a system service)
 
 Or manually:

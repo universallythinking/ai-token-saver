@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 logs/
 .aiproxy_runtime.env
+.aiproxy_session.env
 .mitmproxy/
 *.egg-info/
 dist/

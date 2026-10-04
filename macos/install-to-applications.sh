@@ -38,6 +38,12 @@ cp "$MACOS_DIR/start.sh" "$MACOS_DIR/stop.sh" "$RES/"
 chmod +x "$RES/start.sh" "$RES/stop.sh"
 printf '%s\n' "$ROOT" >"$RES/ProjectRoot"
 
+# App icon
+if [[ -f "$MACOS_DIR/AppIcon.icns" ]]; then
+  cp "$MACOS_DIR/AppIcon.icns" "$RES/applet.icns"
+  cp "$MACOS_DIR/AppIcon.icns" "$RES/AppIcon.icns"
+fi
+
 # Prefer a readable bundle name in Finder / Dock
 PLIST="${TMP}/${APP_NAME}/Contents/Info.plist"
 if [[ -f "$PLIST" ]]; then
@@ -49,6 +55,10 @@ if [[ -f "$PLIST" ]]; then
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.universallythinking.tokensaver" "$PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 11.0" "$PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$PLIST" 2>/dev/null || true
+  if [[ -f "$RES/applet.icns" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile applet" "$PLIST" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string applet" "$PLIST" 2>/dev/null || true
+  fi
 fi
 
 echo "Installing to ${DEST} …"

@@ -112,7 +112,7 @@ def ensure_hosts_entry(hostname: str, alias_ip: str = DEFAULT_ALIAS_IP) -> tuple
 
 def sudo_install_command(*, python_exe: str | None = None, config_path: str | Path | None = None) -> str:
     """Absolute-path install command (sudo + relative .venv often fails)."""
-    py = str(Path(python_exe or sys.executable).resolve())
+    py = _venv_python_for_services(python_exe or sys.executable)
     cmd = f"sudo {py} -m aiproxy --install-hostname"
     if config_path:
         cmd += f" -c {Path(config_path).expanduser().resolve()}"
@@ -173,8 +173,23 @@ def install_port_forward(
     return _install_linux_systemd(config_path=config_path, python_exe=python_exe)
 
 
+def _venv_python_for_services(python_exe: str) -> str:
+    """Absolute path to the venv interpreter without resolving away the venv symlink.
+
+    ``Path.resolve()`` follows ``.venv/bin/python`` → Homebrew Cellar python, and
+    LaunchDaemon then starts without the venv ``site-packages`` (so ``aiproxy``
+    import fails and :80 never binds).
+    """
+    p = Path(python_exe).expanduser()
+    if not p.is_absolute():
+        p = (Path.cwd() / p).absolute()
+    else:
+        p = p.absolute()
+    return str(p)
+
+
 def _install_launchd(*, config_path: Path, python_exe: str) -> tuple[bool, str]:
-    py = str(Path(python_exe).resolve())
+    py = _venv_python_for_services(python_exe)
     cfg = str(config_path.resolve())
     workdir = str(config_path.resolve().parent)
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -253,7 +268,7 @@ def _install_launchd(*, config_path: Path, python_exe: str) -> tuple[bool, str]:
 
 def _install_windows_task(*, config_path: Path, python_exe: str) -> tuple[bool, str]:
     """Run port_alias at startup so dashboard_port stays config-driven (not static netsh)."""
-    py = str(Path(python_exe).resolve())
+    py = _venv_python_for_services(python_exe)
     cfg = str(config_path.resolve())
     task = "aiproxy-tokensaver-http"
     # Remove prior static portproxy if present (best-effort).
@@ -309,7 +324,7 @@ def _install_windows_task(*, config_path: Path, python_exe: str) -> tuple[bool, 
 
 
 def _install_linux_systemd(*, config_path: Path, python_exe: str) -> tuple[bool, str]:
-    py = str(Path(python_exe).resolve())
+    py = _venv_python_for_services(python_exe)
     cfg = str(config_path.resolve())
     workdir = str(config_path.resolve().parent)
     if shutil.which("systemctl") is None:
