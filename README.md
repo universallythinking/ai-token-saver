@@ -10,7 +10,7 @@ One-time setup (hosts entry + port-80 forward so you don’t type `:8081`):
 sudo .venv/bin/python -m aiproxy --install-hostname
 ```
 
-That maps `tokensaver.local` → `127.0.0.2` and forwards `:80` → the dashboard port. Direct URL still works: `http://127.0.0.1:8081/`.
+That maps `tokensaver.local` → `127.0.0.2` and forwards `:80` → whatever `dashboard_port` is in `config.yaml` (auto-detected; no reinstall when the port changes). Direct URL still works: `http://127.0.0.1:8081/`.
 
 <table>
   <tr>

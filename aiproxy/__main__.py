@@ -292,15 +292,11 @@ def main(argv: list[str] | None = None) -> int:  # setuptools entry point
             alias_ip=config.dashboard_alias_ip,
             alias_port=config.dashboard_alias_port,
         )
-        target = config.listen_host
-        if target in ("0.0.0.0", "::", "[::]"):
-            target = "127.0.0.1"
         ok, msg = install_hostname(
             host,
             alias_ip=config.dashboard_alias_ip,
             alias_port=config.dashboard_alias_port,
-            target_host=target,
-            target_port=config.dashboard_port,
+            config_path=config._config_path,  # type: ignore[attr-defined]
             python_exe=sys.executable,
         )
         print(msg)

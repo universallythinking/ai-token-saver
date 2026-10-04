@@ -7,7 +7,8 @@ dashboard_port: 8081
 # Friendly local URL: http://tokensaver.local/  (no port)
 # One-time: sudo .venv/bin/python -m aiproxy --install-hostname
 #   → hosts: 127.0.0.2 tokensaver.local
-#   → LaunchDaemon/portproxy: :80 → dashboard_port
+#   → privileged alias service reads dashboard_port from this file
+#     (change the port anytime — no need to reinstall the hostname)
 dashboard_hostname: "tokensaver.local"
 dashboard_alias_ip: "127.0.0.2"
 dashboard_alias_port: 80

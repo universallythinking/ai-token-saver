@@ -129,22 +129,23 @@ def install_hostname(
     *,
     alias_ip: str = DEFAULT_ALIAS_IP,
     alias_port: int = DEFAULT_ALIAS_PORT,
-    target_host: str = "127.0.0.1",
-    target_port: int = 8081,
+    config_path: str | Path | None = None,
     python_exe: str | None = None,
 ) -> tuple[bool, str]:
-    """Hosts entry + port-80 forwarder so http://hostname/ works."""
+    """Hosts entry + port-80 forwarder so http://hostname/ works.
+
+    The forwarder reads dashboard_port from config_path on each request, so
+    changing the port in config.yaml does not require reinstalling.
+    """
     messages: list[str] = []
     ok, msg = ensure_hosts_entry(hostname, alias_ip)
     messages.append(msg)
     if not ok:
         return False, "\n".join(messages)
 
+    cfg = Path(config_path).expanduser().resolve() if config_path else None
     ok2, msg2 = install_port_forward(
-        alias_ip=alias_ip,
-        alias_port=alias_port,
-        target_host=target_host,
-        target_port=target_port,
+        config_path=cfg,
         python_exe=python_exe or sys.executable,
     )
     messages.append(msg2)
@@ -153,65 +154,38 @@ def install_hostname(
 
 def install_port_forward(
     *,
-    alias_ip: str,
-    alias_port: int,
-    target_host: str,
-    target_port: int,
+    config_path: Path | None,
     python_exe: str,
 ) -> tuple[bool, str]:
+    if config_path is None or not config_path.is_file():
+        return False, f"config not found: {config_path}"
     system = platform.system()
     if system == "Darwin":
-        return _install_launchd(
-            alias_ip=alias_ip,
-            alias_port=alias_port,
-            target_host=target_host,
-            target_port=target_port,
-            python_exe=python_exe,
-        )
+        return _install_launchd(config_path=config_path, python_exe=python_exe)
     if system == "Windows":
-        return _install_windows_portproxy(
-            alias_ip=alias_ip,
-            alias_port=alias_port,
-            target_host=target_host,
-            target_port=target_port,
-        )
-    return _install_linux_systemd(
-        alias_ip=alias_ip,
-        alias_port=alias_port,
-        target_host=target_host,
-        target_port=target_port,
-        python_exe=python_exe,
-    )
+        return _install_windows_task(config_path=config_path, python_exe=python_exe)
+    return _install_linux_systemd(config_path=config_path, python_exe=python_exe)
 
 
-def _install_launchd(
-    *,
-    alias_ip: str,
-    alias_port: int,
-    target_host: str,
-    target_port: int,
-    python_exe: str,
-) -> tuple[bool, str]:
+def _install_launchd(*, config_path: Path, python_exe: str) -> tuple[bool, str]:
     py = str(Path(python_exe).resolve())
+    cfg = str(config_path.resolve())
+    workdir = str(config_path.resolve().parent)
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>{LAUNCHD_LABEL}</string>
+  <key>WorkingDirectory</key>
+  <string>{workdir}</string>
   <key>ProgramArguments</key>
   <array>
     <string>{py}</string>
     <string>-m</string>
     <string>aiproxy.port_alias</string>
-    <string>--listen-host</string>
-    <string>{alias_ip}</string>
-    <string>--listen-port</string>
-    <string>{alias_port}</string>
-    <string>--target-host</string>
-    <string>{target_host}</string>
-    <string>--target-port</string>
-    <string>{target_port}</string>
+    <string>--config</string>
+    <string>{cfg}</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -266,19 +240,17 @@ def _install_launchd(
         )
 
     return True, (
-        f"port alias service {LAUNCHD_LABEL}: {alias_ip}:{alias_port} → "
-        f"{target_host}:{target_port}"
+        f"port alias service {LAUNCHD_LABEL} installed "
+        f"(reads dashboard_port from {cfg} automatically)"
     )
 
 
-def _install_windows_portproxy(
-    *,
-    alias_ip: str,
-    alias_port: int,
-    target_host: str,
-    target_port: int,
-) -> tuple[bool, str]:
-    # Remove any prior mapping for this listen address/port, then add.
+def _install_windows_task(*, config_path: Path, python_exe: str) -> tuple[bool, str]:
+    """Run port_alias at startup so dashboard_port stays config-driven (not static netsh)."""
+    py = str(Path(python_exe).resolve())
+    cfg = str(config_path.resolve())
+    task = "aiproxy-tokensaver-http"
+    # Remove prior static portproxy if present (best-effort).
     subprocess.run(
         [
             "netsh",
@@ -286,64 +258,68 @@ def _install_windows_portproxy(
             "portproxy",
             "delete",
             "v4tov4",
-            f"listenaddress={alias_ip}",
-            f"listenport={alias_port}",
+            "listenaddress=127.0.0.2",
+            "listenport=80",
         ],
         capture_output=True,
         check=False,
     )
-    add = subprocess.run(
+    subprocess.run(["schtasks", "/Delete", "/TN", task, "/F"], capture_output=True, check=False)
+    tr = f'"{py}" -m aiproxy.port_alias --config "{cfg}"'
+    create = subprocess.run(
         [
-            "netsh",
-            "interface",
-            "portproxy",
-            "add",
-            "v4tov4",
-            f"listenaddress={alias_ip}",
-            f"listenport={alias_port}",
-            f"connectaddress={target_host}",
-            f"connectport={target_port}",
+            "schtasks",
+            "/Create",
+            "/TN",
+            task,
+            "/SC",
+            "ONSTART",
+            "/RU",
+            "SYSTEM",
+            "/RL",
+            "HIGHEST",
+            "/F",
+            "/TR",
+            tr,
         ],
         capture_output=True,
         text=True,
         check=False,
     )
-    if add.returncode != 0:
-        err = (add.stderr or add.stdout or "").strip()
+    if create.returncode != 0:
+        err = (create.stderr or create.stdout or "").strip()
         return False, (
-            f"netsh portproxy failed: {err}\n"
+            f"schtasks failed: {err}\n"
             "Run elevated PowerShell:\n"
-            f"  netsh interface portproxy add v4tov4 "
-            f"listenaddress={alias_ip} listenport={alias_port} "
-            f"connectaddress={target_host} connectport={target_port}"
+            f"  schtasks /Create /TN {task} /SC ONSTART /RU SYSTEM /RL HIGHEST /F /TR {tr!r}\n"
+            f"  # or run now: {tr}"
         )
-    return True, f"portproxy {alias_ip}:{alias_port} → {target_host}:{target_port}"
+    # Start immediately for this session.
+    subprocess.run(["schtasks", "/Run", "/TN", task], capture_output=True, check=False)
+    return True, (
+        f"scheduled task {task} installed "
+        f"(reads dashboard_port from {cfg} automatically)"
+    )
 
 
-def _install_linux_systemd(
-    *,
-    alias_ip: str,
-    alias_port: int,
-    target_host: str,
-    target_port: int,
-    python_exe: str,
-) -> tuple[bool, str]:
+def _install_linux_systemd(*, config_path: Path, python_exe: str) -> tuple[bool, str]:
+    py = str(Path(python_exe).resolve())
+    cfg = str(config_path.resolve())
+    workdir = str(config_path.resolve().parent)
     if shutil.which("systemctl") is None:
         return False, (
             "systemd not available — start the alias manually as root:\n"
-            f"  {python_exe} -m aiproxy.port_alias "
-            f"--listen-host {alias_ip} --listen-port {alias_port} "
-            f"--target-host {target_host} --target-port {target_port}"
+            f"  {py} -m aiproxy.port_alias --config {cfg}"
         )
 
-    py = str(Path(python_exe).resolve())
     unit_path = Path("/etc/systemd/system/aiproxy-tokensaver-http.service")
     unit = f"""[Unit]
-Description=aiproxy tokensaver.local port alias
+Description=aiproxy tokensaver.local port alias (auto dashboard_port from config)
 After=network.target
 
 [Service]
-ExecStart={py} -m aiproxy.port_alias --listen-host {alias_ip} --listen-port {alias_port} --target-host {target_host} --target-port {target_port}
+WorkingDirectory={workdir}
+ExecStart={py} -m aiproxy.port_alias --config {cfg}
 Restart=always
 RestartSec=2
 
@@ -372,8 +348,8 @@ WantedBy=multi-user.target
             return False, f"wrote {unit_path} but {' '.join(cmd)} failed: {err}"
 
     return True, (
-        f"systemd aiproxy-tokensaver-http: {alias_ip}:{alias_port} → "
-        f"{target_host}:{target_port}"
+        f"systemd aiproxy-tokensaver-http installed "
+        f"(reads dashboard_port from {cfg} automatically)"
     )
 
 
@@ -388,18 +364,22 @@ def print_install_help(
     line = hosts_line(hostname, alias_ip)
     pretty = f"http://{hostname}/" if alias_port == 80 else f"http://{hostname}:{alias_port}/"
     print(f"Memorable dashboard URL: {pretty}")
-    print(f"  (forwards {alias_ip}:{alias_port} → 127.0.0.1:{dashboard_port})")
+    print(
+        f"  (forwards {alias_ip}:{alias_port} → dashboard_port from config.yaml; "
+        f"currently {dashboard_port})"
+    )
     print(f"Hosts file: {path}")
     if hostname_configured(hostname, path, alias_ip=alias_ip):
-        print(f"Hosts entry OK — finish with port alias if needed")
+        print("Hosts entry OK — finish with port alias if needed")
     else:
         print("Not configured yet. One-time install:")
         if platform.system() == "Windows":
-            print(f'  # elevated PowerShell')
-            print(f'  .\\.venv\\Scripts\\python.exe -m aiproxy --install-hostname')
+            print("  # elevated PowerShell")
+            print("  .\\.venv\\Scripts\\python.exe -m aiproxy --install-hostname")
         else:
             print("  sudo .venv/bin/python -m aiproxy --install-hostname")
             print(f"  # hosts line: {line}")
     print()
     print("Direct URL (always works, no alias):")
     print(f"  http://127.0.0.1:{dashboard_port}/")
+    print("Changing dashboard_port in config.yaml is picked up automatically — no reinstall.")

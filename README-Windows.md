@@ -264,7 +264,7 @@ Stop the other process, or change ports in `config.yaml` (`listen_port`, `dashbo
 
 ### Memorable dashboard URL
 
-Default alias is `http://tokensaver.local/` (no port). Install once (Admin PowerShell) — hosts entry + `netsh` portproxy `:80` → dashboard:
+Default alias is `http://tokensaver.local/` (no port). Install once (Admin PowerShell) — hosts entry + startup task that forwards `:80` using `dashboard_port` from `config.yaml` (auto-updates if the port changes):
 
 ```powershell
 .\.venv\Scripts\python.exe -m aiproxy --install-hostname
