@@ -243,11 +243,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   }
   .hero {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 12px;
     margin-bottom: 14px;
   }
-  @media (max-width: 1100px) { .hero { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 1200px) { .hero { grid-template-columns: repeat(3, 1fr); } }
   @media (max-width: 700px) { .hero { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 560px) { .hero { grid-template-columns: 1fr; } }
   .panel {
@@ -500,9 +500,14 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <div class="sub" id="token-pct">0% removed</div>
       </div>
       <div class="panel stat">
-        <label>Est. $/hr</label>
-        <div class="v pct" id="usd-saved">$0/hr</div>
-        <div class="sub" id="usd-sub">$0/req · approx</div>
+        <label>Actual $/hr</label>
+        <div class="v pct" id="usd-actual">$0/hr</div>
+        <div class="sub" id="usd-actual-sub">per-model rates</div>
+      </div>
+      <div class="panel stat">
+        <label>Max $/hr</label>
+        <div class="v saved" id="usd-max">$0/hr</div>
+        <div class="sub" id="usd-max-sub">most expensive model</div>
       </div>
       <div class="panel stat">
         <label>Characters saved</label>
@@ -633,24 +638,17 @@ const fmtUsd = (n) => {
   return "$0";
 };
 
-/** Elapsed hours for rate math — always extrapolate, even under 1 hour. */
-function savingsElapsedHours(d, series) {
-  if (windowMins === 0) {
-    // Lifetime span; floor at 60s so a brand-new session doesn't blow up.
-    return Math.max(Number(d.lifetime_s) || 0, 60) / 3600;
-  }
-  if (series && series.length >= 2) {
-    const span = (series[series.length - 1].t - series[0].t) + 60;
-    return Math.max(span, 60) / 3600;
-  }
-  if (series && series.length === 1) {
-    return 1 / 60; // one minute bucket → extrapolate ×60
-  }
-  // Empty window: use selected window length, capped by lifetime.
-  const winS = windowMins * 60;
-  const life = Number(d.lifetime_s) || 0;
-  const elapsed = life > 0 ? Math.min(winS, life) : winS;
-  return Math.max(elapsed, 60) / 3600;
+/**
+ * Active minute buckets for $/hr — only minutes with model-token traffic.
+ * Idle gaps are excluded (no first→last wall-clock span).
+ */
+function savingsActiveBuckets(d) {
+  const now = d.now || (Date.now() / 1000);
+  const cut = windowCutoff(now);
+  return (d.series || []).filter((s) => {
+    if ((s.t || 0) < cut) return false;
+    return (Number(s.tokens_in) || 0) > 0 || (Number(s.n) || 0) > 0;
+  });
 }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const MODEL_COLORS = ["#1f6feb","#0f7a5f","#2a9d8f","#c4782b","#8b5cf6","#db6b5a","#0b5c47","#6b7a73","#3b82f6","#d97706"];
@@ -927,20 +925,34 @@ function applyView(d) {
   document.getElementById("tokens-out").textContent = fmtFull(use.tokens_out) + " tok";
   document.getElementById("chars-out").textContent = fmtFull(use.chars_out) + " chars · " + fmtFull(use.stripped) + " stripped";
 
-  // Cost from tokens_saved in view × blended $/MTok (same basis as Tokens saved).
-  // $/hr extrapolates when the sample is under an hour; also show $/req + total.
-  const rate = Number(d.usd_per_mtok || 3);
+  // Cost cards: actual (per-model) then max (most expensive). $/hr = active minutes only.
+  const lifeTok = Number(tAll.tokens_saved || 0);
   const tokSaved = Number(use.tokens_saved || 0);
-  const usd = tokSaved * rate / 1e6;
-  const hours = savingsElapsedHours(d, series);
-  const usdPerHour = hours > 0 ? usd / hours : 0;
+  const scale = lifeTok > 0 ? tokSaved / lifeTok : 0;
+  const lifeActual = Number(d.usd_saved_actual != null ? d.usd_saved_actual : d.usd_saved_est || 0);
+  const lifeMax = Number(d.usd_saved_max != null ? d.usd_saved_max : d.usd_saved_est || 0);
+  const usdActual = lifeActual * scale;
+  const usdMax = lifeMax * scale;
+  const activeBuckets = savingsActiveBuckets(d);
+  const activeTokSaved = sumSeries(activeBuckets).tokens_saved || 0;
+  const activeScale = lifeTok > 0 ? activeTokSaved / lifeTok : 0;
+  const hours = Math.max(activeBuckets.length, 1) / 60;
+  const usdPerHourActual = (lifeActual * activeScale) / hours;
+  const usdPerHourMax = (lifeMax * activeScale) / hours;
   const reqs = Number(use.n || 0);
-  const usdPerReq = reqs > 0 ? usd / reqs : 0;
-  const elapsedMin = Math.max(1, Math.round(hours * 60));
-  const rateNote = elapsedMin < 60 ? `from ${elapsedMin}m` : `from ${Math.round(hours)}h`;
-  document.getElementById("usd-saved").textContent = fmtUsd(usdPerHour) + "/hr";
-  document.getElementById("usd-sub").textContent =
-    fmtUsd(usdPerReq) + "/req · " + fmtUsd(usd) + " total · @" + rate.toFixed(2) + "/MTok · " + rateNote;
+  const usdPerReqActual = reqs > 0 ? usdActual / reqs : 0;
+  const usdPerReqMax = reqs > 0 ? usdMax / reqs : 0;
+  const activeMin = Math.max(1, activeBuckets.length);
+  const rateNote = activeMin < 60 ? `${activeMin}m active` : `${Math.round(hours)}h active`;
+  const rateModel = shortModel(d.usd_rate_model || d.assumed_model || "est");
+  const rateActual = Number(d.usd_per_mtok_actual || d.usd_per_mtok || 3);
+  const rateMax = Number(d.usd_per_mtok_max || d.usd_per_mtok || 3);
+  document.getElementById("usd-actual").textContent = fmtUsd(usdPerHourActual) + "/hr";
+  document.getElementById("usd-actual-sub").textContent =
+    fmtUsd(usdActual) + " total · " + fmtUsd(usdPerReqActual) + "/req · @$" + rateActual.toFixed(2) + "/MTok · " + rateNote;
+  document.getElementById("usd-max").textContent = fmtUsd(usdPerHourMax) + "/hr";
+  document.getElementById("usd-max-sub").textContent =
+    fmtUsd(usdMax) + " total · " + fmtUsd(usdPerReqMax) + "/req · @$" + rateMax.toFixed(2) + "/MTok (" + rateModel + ") · " + rateNote;
 
   const mins = Math.floor((d.uptime_s||0)/60);
   const lifeDays = Math.floor((d.lifetime_s||0) / 86400);

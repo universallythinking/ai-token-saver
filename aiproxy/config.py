@@ -33,6 +33,13 @@ class LogConfig:
 
 
 @dataclass
+class PricingConfig:
+    # Cursor sends "default" and resolves the model server-side, so savings are
+    # priced at this model's input rate when nothing concrete is detected.
+    assume_model: str = ""
+
+
+@dataclass
 class Config:
     listen_host: str = "127.0.0.1"
     listen_port: int = 8080
@@ -45,6 +52,7 @@ class Config:
     block_host_suffixes: list[str] = field(default_factory=list)
     strip: StripConfig = field(default_factory=StripConfig)
     logging: LogConfig = field(default_factory=LogConfig)
+    pricing: PricingConfig = field(default_factory=PricingConfig)
     stats_path: str = "logs/stats.json"
 
     @classmethod
@@ -57,6 +65,7 @@ class Config:
 
         strip_raw = raw.get("strip") or {}
         log_raw = raw.get("logging") or {}
+        pricing_raw = raw.get("pricing") or {}
 
         return cls(
             listen_host=raw.get("listen_host", "127.0.0.1"),
@@ -91,6 +100,9 @@ class Config:
                 dump_only_when_stripped=bool(
                     log_raw.get("dump_only_when_stripped", True)
                 ),
+            ),
+            pricing=PricingConfig(
+                assume_model=str(pricing_raw.get("assume_model", "") or ""),
             ),
             stats_path=_resolve_stats_path(
                 str(raw.get("stats_path", "logs/stats.json")),

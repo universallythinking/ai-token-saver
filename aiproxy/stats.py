@@ -10,7 +10,12 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .pricing import blended_rate_usd_per_mtok, estimate_usd_saved
+from .pricing import (
+    actual_usd_saved,
+    assumed_model,
+    estimate_usd_saved,
+    max_rate_usd_per_mtok,
+)
 
 log = logging.getLogger("aiproxy.stats")
 
@@ -260,10 +265,12 @@ class StatsStore:
                     key=lambda kv: (-kv[1].get("tokens_in", 0), kv[0]),
                 )
             }
-            # Price from lifetime tokens_saved × blended model rate so the
-            # dollar figure tracks the same counter as the Tokens saved card.
-            rate = blended_rate_usd_per_mtok(by_model)
-            usd_saved = estimate_usd_saved(by_model, tokens_saved=int(t["tokens_saved"]))
+            tok_saved = int(t["tokens_saved"])
+            # Actual: each model's tokens at that model's rate (unknown → assume_model).
+            usd_actual, rate_actual = actual_usd_saved(by_model, tokens_saved=tok_saved)
+            # Max: all tokens at the most expensive applicable model.
+            rate_max, rate_model = max_rate_usd_per_mtok(by_model)
+            usd_max = estimate_usd_saved(by_model, tokens_saved=tok_saved)
             return {
                 "started_at": self.started_at,
                 "first_started_at": self.first_started_at,
@@ -278,8 +285,14 @@ class StatsStore:
                 "recent": recent,
                 "series": series,
                 "by_model": by_model,
-                "usd_saved_est": usd_saved,
-                "usd_per_mtok": round(rate, 4),
+                "usd_saved_actual": usd_actual,
+                "usd_per_mtok_actual": rate_actual,
+                "usd_saved_est": usd_max,  # max (legacy key)
+                "usd_saved_max": usd_max,
+                "usd_per_mtok": round(rate_max, 4),
+                "usd_per_mtok_max": round(rate_max, 4),
+                "usd_rate_model": rate_model,
+                "assumed_model": assumed_model(),
             }
 
     def reset(self) -> None:
@@ -347,7 +360,7 @@ class StatsStore:
                     continue
 
         # File stores newest-first (same as list(self.recent)); restore with appendleft
-        # from oldest→newest so left side stays newest.
+        # from oldest→newest so left side stays newest. Keep historical model labels.
         items = list(data.get("recent") or [])
         restored: list[RequestEvent] = []
         for item in items:

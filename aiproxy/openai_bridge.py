@@ -9,7 +9,7 @@ from aiohttp import ClientSession, ClientTimeout, web
 
 from .config import Config
 from .dashboard import start_dashboard_background
-from .pricing import extract_model
+from .pricing import extract_model, set_assumed_model
 from .stats import init_store, resolve_stats_path
 from .stripper import estimate_tokens, try_strip_bytes
 
@@ -195,6 +195,7 @@ def _banner(config: Config) -> str:
 
 
 async def run_openai_bridge(config: Config) -> None:
+    set_assumed_model(config.pricing.assume_model)
     root = Path(__file__).resolve().parent.parent
     store = init_store(resolve_stats_path(config.stats_path, base=root))
     start_dashboard_background(config, store)
