@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 
 from .stats import StatsStore
+from .dashboard_v2 import HTML_HEAD as DASHBOARD_HTML_V2_HEAD
 
 if TYPE_CHECKING:
     from .config import Config
@@ -135,6 +136,22 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
   }
   #theme { min-width: 4.6rem; }
   #export-pdf { min-width: 7.2rem; }
+  #goto-v2 {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 4.6rem;
+    text-decoration: none;
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-family: "Sora", sans-serif;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  #goto-v2:hover { background: var(--saved); color: #fff; }
   .status-bar {
     margin-bottom: 16px;
   }
@@ -225,10 +242,12 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
     }
     .wrap { max-width: none; padding: 12px; }
     .actions button,
+    .actions a,
     .toolbar,
     #theme,
     #reset,
     #export-pdf,
+    #goto-v2,
     .chart-tip { display: none !important; }
     .panel {
       break-inside: avoid;
@@ -462,14 +481,15 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
   }
 </style>
 </head>
-<body>
+<body data-dash="v1">
   <div class="wrap">
     <header>
       <div class="brand-block">
         <h1 class="brand">ai<span>proxy</span></h1>
-        <p class="lede">Model-path token savings with time windows, trends, and mix charts.</p>
+        <p class="lede">Classic view — token savings, trends, and mix charts.</p>
       </div>
       <div class="actions">
+        <a class="ghost" id="goto-v2" href="/v2">v2 →</a>
         <button class="ghost" id="theme" type="button" aria-label="Toggle dark theme">Dark</button>
         <button class="ghost" id="export-pdf" type="button">Export PDF</button>
         <button class="primary" id="reset" type="button">Reset</button>
@@ -597,10 +617,17 @@ let windowMins = 60;
 let bucketMins = 1;
 let lastPayload = null;
 
-const THEME_KEY = "aiproxy.dashboard.theme";
+const THEME_KEY = document.body && document.body.dataset.dash === "v2"
+  ? "aiproxy.dashboard.v2.theme"
+  : "aiproxy.dashboard.theme";
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
 }
 
 function currentTheme() {
@@ -1033,6 +1060,53 @@ function applyView(d) {
       : [{label: "none", value: 0, color: cssVar("--muted") || "#6b7a73"}]
   );
   renderTable(recent);
+
+  // Optional denser metrics (v2). Safe no-ops when elements are absent.
+  const activeSum = sumSeries(activeBuckets);
+  const activeReqs = Number(activeSum.n || 0);
+  const reqPerHour = activeReqs / hours;
+  const stripPct = reqs > 0 ? round2(100 * Number(use.stripped || 0) / reqs) : 0;
+  const avgTokIn = reqs > 0 ? Math.round(use.tokens_in / reqs) : 0;
+  const avgTokOut = reqs > 0 ? Math.round(use.tokens_out / reqs) : 0;
+  const avgTokSaved = reqs > 0 ? Math.round(use.tokens_saved / reqs) : 0;
+  const avgCharsSaved = reqs > 0 ? Math.round(use.chars_saved / reqs) : 0;
+  const peakSave = rateSeries.length
+    ? round2(Math.max(...rateSeries.map((s) => Number(s.save_pct) || 0)))
+    : 0;
+  const topModel = modelEntries.length ? shortModel(modelEntries[0].name) : "—";
+  const topShare = modelEntries.length && use.tokens_in
+    ? round2(100 * modelEntries[0].tokens_in / use.tokens_in)
+    : (modelEntries.length && modelEntries[0].n
+        ? round2(100 * modelEntries[0].n / Math.max(reqs, 1))
+        : 0);
+  setText("m-save-pct", tokPct + "%");
+  setText("m-save-pct-sub", charPct + "% chars removed");
+  setText("m-strip-pct", stripPct + "%");
+  setText("m-strip-pct-sub", fmtFull(use.stripped || 0) + " of " + fmtFull(reqs) + " req");
+  setText("m-usd-total-actual", fmtUsd(usdActual));
+  setText("m-usd-total-actual-sub", fmtUsd(usdPerReqActual) + "/req blend");
+  setText("m-usd-total-max", fmtUsd(usdMax));
+  setText("m-usd-total-max-sub", fmtUsd(usdPerReqMax) + "/req @" + rateModel);
+  setText("m-avg-tok-in", fmtFull(avgTokIn));
+  setText("m-avg-tok-in-sub", fmtFull(avgTokOut) + " forwarded avg");
+  setText("m-avg-tok-saved", fmtFull(avgTokSaved));
+  setText("m-avg-tok-saved-sub", fmtFull(avgCharsSaved) + " chars/req");
+  setText("m-req-rate", round2(reqPerHour) + "/hr");
+  setText("m-req-rate-sub", fmtFull(activeReqs) + " active · " + rateNote);
+  setText("m-peak-save", peakSave + "%");
+  setText("m-peak-save-sub", "best bucket in window");
+  setText("m-models", String(modelEntries.length));
+  setText("m-models-sub", topModel === "—" ? "no traffic yet" : "top " + topModel + " · " + topShare + "%");
+  setText("m-sync", fmtFull(tAll.sync || 0));
+  setText("m-sync-sub", fmt(tAll.sync_chars || 0) + " chars synced");
+  setText("m-noise", fmtFull((tAll.ignored || 0) + (tAll.passthrough || 0)));
+  setText("m-noise-sub", fmtFull(tAll.ignored || 0) + " ignored · " + fmtFull(tAll.passthrough || 0) + " pass");
+  setText("m-blocked", fmtFull(tAll.blocked || 0));
+  setText("m-blocked-sub", fmtFull(tAll.unchanged || 0) + " unchanged");
+  setText("m-life-saved", fmtFull(tAll.tokens_saved || 0));
+  setText("m-life-saved-sub", fmtFull(tAll.requests || 0) + " lifetime req");
+  setText("m-uptime", mins + "m");
+  setText("m-uptime-sub", lifeDays > 0 ? lifeDays + "d lifetime span" : "this process");
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
@@ -1106,664 +1180,6 @@ DASHBOARD_HTML = DASHBOARD_HTML_HEAD + DASHBOARD_JS + r"""
 </script>
 </body>
 </html>
-"""
-
-DASHBOARD_HTML_V2_HEAD = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>aiproxy · ops</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<style>
-  :root {
-    --ink: #0c0e12;
-    --ink-soft: #2a3038;
-    --muted: #6a7380;
-    --line: #d4d8e0;
-    --line-soft: #e6e9ef;
-    --paper: #eef0f4;
-    --panel: #ffffff;
-    --accent: #0f9f8a;
-    --accent-hot: #e85d2a;
-    --accent-soft: rgba(15,159,138,0.12);
-    --in: #2563eb;
-    --out: #0f9f8a;
-    --saved: #0a7a68;
-    --sync: #c4782b;
-    --ignored: #8a929c;
-    --shadow: 0 1px 0 rgba(12,14,18,0.04), 0 10px 28px rgba(12,14,18,0.06);
-    --radius: 4px;
-    --bg0: #dfe8f2;
-    --bg1: #e4f2ed;
-    --bg2: #eef0f4;
-    --grid: #d4d8e0;
-    --grid-soft: #e6e9ef;
-    --pie-hole: #ffffff;
-    --rail: #0c0e12;
-  }
-  html[data-theme="dark"] {
-    --ink: #f0f2f5;
-    --ink-soft: #c2c8d0;
-    --muted: #8a929c;
-    --line: #2a3038;
-    --line-soft: #1c2128;
-    --paper: #0c0e12;
-    --panel: #14181f;
-    --accent: #3dceb8;
-    --accent-hot: #ff7a45;
-    --accent-soft: rgba(61,206,184,0.14);
-    --in: #6ea8ff;
-    --out: #3dceb8;
-    --saved: #5ee0c8;
-    --sync: #e0a35a;
-    --ignored: #6a7380;
-    --shadow: 0 1px 0 rgba(0,0,0,0.35), 0 12px 32px rgba(0,0,0,0.4);
-    --bg0: #152030;
-    --bg1: #122820;
-    --bg2: #0c0e12;
-    --grid: #2a3038;
-    --grid-soft: #1c2128;
-    --pie-hole: #14181f;
-    --rail: #f0f2f5;
-  }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0;
-    min-height: 100%;
-    color: var(--ink);
-    font-family: "Outfit", sans-serif;
-    background:
-      radial-gradient(1200px 600px at -5% -20%, var(--bg0) 0%, transparent 55%),
-      radial-gradient(900px 500px at 105% 0%, var(--bg1) 0%, transparent 50%),
-      linear-gradient(180deg, var(--bg2) 0%, var(--paper) 100%);
-  }
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.45;
-    background-image:
-      linear-gradient(var(--line-soft) 1px, transparent 1px),
-      linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
-    background-size: 48px 48px;
-    mask-image: linear-gradient(180deg, rgba(0,0,0,0.55), transparent 70%);
-  }
-  .wrap {
-    position: relative;
-    width: min(1680px, 98vw);
-    margin: 0 auto;
-    padding: 20px 28px 48px;
-  }
-  @media (max-width: 720px) {
-    .wrap { padding: 16px 14px 40px; width: 100%; }
-  }
-  .topbar {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 18px;
-    padding-bottom: 16px;
-    border-bottom: 2px solid var(--rail);
-  }
-  @media (max-width: 900px) {
-    .topbar { grid-template-columns: 1fr; gap: 12px; }
-  }
-  .brand-row {
-    display: flex;
-    align-items: baseline;
-    gap: 14px;
-    flex-wrap: wrap;
-    min-width: 0;
-  }
-  .brand {
-    margin: 0;
-    font-size: clamp(1.75rem, 2.8vw, 2.4rem);
-    font-weight: 800;
-    letter-spacing: -0.06em;
-    line-height: 0.95;
-  }
-  .brand span { color: var(--accent); }
-  .badge {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.62rem;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--paper);
-    background: var(--rail);
-    padding: 5px 8px;
-    border-radius: 2px;
-  }
-  .lede {
-    margin: 6px 0 0;
-    color: var(--ink-soft);
-    font-size: 0.9rem;
-    max-width: 52ch;
-  }
-  .version-switch {
-    display: inline-flex;
-    border: 1px solid var(--line);
-    background: var(--panel);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .version-switch a {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-decoration: none;
-    color: var(--muted);
-    padding: 9px 12px;
-  }
-  .version-switch a.active {
-    background: var(--ink);
-    color: var(--paper);
-  }
-  .version-switch a:hover:not(.active) { color: var(--accent); }
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .actions button {
-    flex: 0 0 auto;
-    white-space: nowrap;
-    min-height: 38px;
-  }
-  .status-bar { margin-bottom: 14px; }
-  .meta {
-    display: block;
-    width: 100%;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.7rem;
-    color: var(--muted);
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-left: 3px solid var(--accent);
-    border-radius: 2px;
-    padding: 9px 14px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-height: 36px;
-    line-height: 18px;
-  }
-  .toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 14px;
-    flex-wrap: wrap;
-  }
-  .seg {
-    display: inline-flex;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 2px;
-    padding: 3px;
-    gap: 2px;
-  }
-  .seg button {
-    font-family: "Outfit", sans-serif;
-    font-size: 0.74rem;
-    font-weight: 600;
-    background: transparent;
-    color: var(--ink-soft);
-    border: 0;
-    border-radius: 2px;
-    padding: 8px 12px;
-    cursor: pointer;
-  }
-  .seg button.active {
-    background: var(--ink);
-    color: var(--paper);
-  }
-  .seg button:hover:not(.active) { background: var(--accent-soft); color: var(--accent); }
-  button.primary {
-    font-family: "Outfit", sans-serif;
-    font-size: 0.78rem;
-    font-weight: 600;
-    background: var(--accent-hot);
-    color: #fff;
-    border: 0;
-    border-radius: 2px;
-    padding: 10px 14px;
-    cursor: pointer;
-  }
-  button.primary:hover { filter: brightness(1.05); }
-  button.ghost {
-    font-family: "Outfit", sans-serif;
-    font-size: 0.78rem;
-    font-weight: 600;
-    background: var(--panel);
-    color: var(--ink-soft);
-    border: 1px solid var(--line);
-    border-radius: 2px;
-    padding: 10px 14px;
-    cursor: pointer;
-  }
-  button.ghost:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  @media print {
-    body::before { display: none !important; }
-    body {
-      background: #fff !important;
-      color: #0c0e12 !important;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
-    .wrap { max-width: none; width: 100%; padding: 12px; }
-    .actions button,
-    .toolbar,
-    #theme,
-    #reset,
-    #export-pdf,
-    .version-switch,
-    .chart-tip { display: none !important; }
-    .panel, .stat {
-      break-inside: avoid;
-      box-shadow: none;
-      border: 1px solid #d4d8e0;
-      background: #fff;
-    }
-    .meta { border: 1px solid #d4d8e0; }
-    .chart, .pie-wrap { break-inside: avoid; }
-    a { text-decoration: none; color: inherit; }
-  }
-  .hero {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 0;
-    margin-bottom: 14px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    overflow: hidden;
-  }
-  @media (max-width: 1200px) { .hero { grid-template-columns: repeat(3, 1fr); } }
-  @media (max-width: 700px) { .hero { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 560px) { .hero { grid-template-columns: 1fr; } }
-  .stat {
-    padding: 18px 20px 16px;
-    border-right: 1px solid var(--line-soft);
-  }
-  .stat:nth-child(3n) { border-right: 1px solid var(--line-soft); }
-  .stat:last-child { border-right: 0; }
-  @media (max-width: 1200px) {
-    .stat:nth-child(3n) { border-right: 0; }
-    .stat:nth-child(n+4) { border-top: 1px solid var(--line-soft); }
-  }
-  @media (max-width: 700px) {
-    .stat:nth-child(2n) { border-right: 0; }
-    .stat:nth-child(n+3) { border-top: 1px solid var(--line-soft); }
-  }
-  @media (max-width: 560px) {
-    .stat { border-right: 0; }
-    .stat + .stat { border-top: 1px solid var(--line-soft); }
-  }
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    padding: 16px 18px 14px;
-  }
-  .panel h2 {
-    margin: 0 0 10px;
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .panel .head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
-  .panel .head h2 { margin: 0; }
-  .hint {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.68rem;
-    color: var(--muted);
-  }
-  .stat label {
-    display: block;
-    font-size: 0.64rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 8px;
-  }
-  .stat .v {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: clamp(1.2rem, 1.6vw, 1.55rem);
-    font-weight: 600;
-    letter-spacing: -0.03em;
-  }
-  .stat .v.in { color: var(--in); }
-  .stat .v.out { color: var(--out); }
-  .stat .v.saved { color: var(--saved); }
-  .stat .v.pct { color: var(--accent-hot); }
-  .stat .sub {
-    margin-top: 6px;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.68rem;
-    color: var(--muted);
-    line-height: 1.35;
-  }
-  .charts {
-    display: grid;
-    grid-template-columns: 1.7fr 1fr;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
-  @media (max-width: 1000px) { .charts { grid-template-columns: 1fr; } }
-  .pies {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
-  @media (max-width: 1100px) { .pies { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 720px) { .pies { grid-template-columns: 1fr; } }
-  .chart { height: 240px; }
-  .pie-wrap {
-    display: grid;
-    grid-template-columns: 150px 1fr;
-    gap: 12px;
-    align-items: center;
-    min-height: 170px;
-  }
-  @media (max-width: 520px) {
-    .pie-wrap { grid-template-columns: 1fr; justify-items: center; }
-  }
-  .chart svg, .pie-wrap svg { width: 100%; height: 100%; display: block; }
-  .legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 14px;
-    margin-top: 10px;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.7rem;
-    color: var(--muted);
-  }
-  .legend.col { flex-direction: column; gap: 8px; margin-top: 0; }
-  .legend i {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 1px;
-    margin-right: 6px;
-    vertical-align: -1px;
-  }
-  .table-scroll { overflow-x: auto; }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.72rem;
-  }
-  th {
-    text-align: left;
-    color: var(--muted);
-    font-weight: 600;
-    padding: 0 10px 10px 0;
-    border-bottom: 2px solid var(--line);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 0.6rem;
-    white-space: nowrap;
-  }
-  td {
-    padding: 11px 10px 11px 0;
-    border-bottom: 1px solid var(--line-soft);
-    color: var(--ink-soft);
-  }
-  tr:last-child td { border-bottom: 0; }
-  tr:hover td { background: var(--accent-soft); }
-  .tag {
-    display: inline-flex;
-    align-items: center;
-    padding: 3px 7px;
-    border-radius: 2px;
-    background: var(--line-soft);
-    color: var(--muted);
-    font-size: 0.66rem;
-    font-weight: 500;
-  }
-  .tag.yes { background: var(--accent-soft); color: var(--accent); }
-  .path {
-    max-width: 280px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--muted);
-  }
-  .empty {
-    color: var(--muted);
-    padding: 16px 0 6px;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.78rem;
-  }
-  .chart, .pie-wrap > div:first-child { position: relative; }
-  .chart-tip {
-    position: absolute;
-    z-index: 20;
-    pointer-events: none;
-    opacity: 0;
-    transform: translate(-50%, calc(-100% - 10px));
-    background: var(--ink);
-    color: var(--paper);
-    border-radius: 2px;
-    padding: 8px 10px;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.68rem;
-    line-height: 1.35;
-    white-space: nowrap;
-    box-shadow: var(--shadow);
-    transition: opacity 80ms ease;
-    max-width: min(280px, 70vw);
-  }
-  .chart-tip.visible { opacity: 1; }
-  .chart-tip strong {
-    display: block;
-    margin-bottom: 4px;
-    font-weight: 600;
-  }
-  .chart-tip .row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .chart-tip .swatch {
-    width: 8px;
-    height: 8px;
-    border-radius: 1px;
-    flex: 0 0 auto;
-  }
-  .live {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--accent);
-    margin-right: 8px;
-    animation: pulse 2s ease infinite;
-  }
-  .site-footer {
-    margin-top: 24px;
-    padding-top: 14px;
-    border-top: 1px solid var(--line);
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 0.7rem;
-    letter-spacing: 0.04em;
-    color: var(--muted);
-  }
-  .site-footer a { color: var(--accent); text-decoration: none; }
-  .site-footer a:hover { text-decoration: underline; }
-  @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(15,159,138,0.4); }
-    70% { box-shadow: 0 0 0 8px rgba(15,159,138,0); }
-    100% { box-shadow: 0 0 0 0 rgba(15,159,138,0); }
-  }
-</style>
-</head>
-<body>
-  <div class="wrap">
-    <header class="topbar">
-      <div>
-        <div class="brand-row">
-          <h1 class="brand">ai<span>proxy</span></h1>
-          <span class="badge">ops v2</span>
-        </div>
-        <p class="lede">Wide ops view — token savings, spend velocity, and model mix across the full canvas.</p>
-      </div>
-      <nav class="version-switch" aria-label="Dashboard version">
-        <a href="/">v1</a>
-        <a href="/v2" class="active" aria-current="page">v2</a>
-      </nav>
-      <div class="actions">
-        <button class="ghost" id="theme" type="button" aria-label="Toggle dark theme">Dark</button>
-        <button class="ghost" id="export-pdf" type="button">Export PDF</button>
-        <button class="primary" id="reset" type="button">Reset</button>
-      </div>
-    </header>
-    <div class="status-bar">
-      <div class="meta" id="meta"><span class="live"></span>connecting…</div>
-    </div>
-
-    <div class="toolbar">
-      <div class="seg" id="window-seg" role="group" aria-label="Time window">
-        <button type="button" data-mins="15">15m</button>
-        <button type="button" data-mins="60" class="active">1h</button>
-        <button type="button" data-mins="360">6h</button>
-        <button type="button" data-mins="0">All</button>
-      </div>
-      <div class="seg" id="bucket-seg" role="group" aria-label="Bucket size">
-        <button type="button" data-bucket="1" class="active">1m buckets</button>
-        <button type="button" data-bucket="5">5m</button>
-        <button type="button" data-bucket="15">15m</button>
-      </div>
-    </div>
-
-    <section class="hero">
-      <div class="stat">
-        <label>Tokens saved</label>
-        <div class="v saved" id="tokens-saved">0</div>
-        <div class="sub" id="token-pct">0% removed</div>
-      </div>
-      <div class="stat">
-        <label>Actual $/hr</label>
-        <div class="v pct" id="usd-actual">$0/hr</div>
-        <div class="sub" id="usd-actual-sub">per-model rates</div>
-      </div>
-      <div class="stat">
-        <label>Max $/hr</label>
-        <div class="v saved" id="usd-max">$0/hr</div>
-        <div class="sub" id="usd-max-sub">most expensive model</div>
-      </div>
-      <div class="stat">
-        <label>Characters saved</label>
-        <div class="v pct" id="chars-saved">0</div>
-        <div class="sub" id="char-pct">0% removed</div>
-      </div>
-      <div class="stat">
-        <label>Requested</label>
-        <div class="v in" id="tokens-in">0 tok</div>
-        <div class="sub" id="chars-in">0 chars · 0 req</div>
-      </div>
-      <div class="stat">
-        <label>Forwarded</label>
-        <div class="v out" id="tokens-out">0 tok</div>
-        <div class="sub" id="chars-out">0 chars · 0 stripped</div>
-      </div>
-    </section>
-
-    <section class="charts">
-      <div class="panel">
-        <div class="head">
-          <h2>Tokens over time</h2>
-          <span class="hint" id="line-hint">1h · 1m buckets</span>
-        </div>
-        <div class="chart" id="line-chart"></div>
-        <div class="legend">
-          <span><i style="background:var(--in)"></i>requested</span>
-          <span><i style="background:var(--saved)"></i>saved</span>
-          <span><i style="background:var(--out)"></i>forwarded</span>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="head">
-          <h2>Save rate</h2>
-          <span class="hint" id="rate-hint">% tokens removed</span>
-        </div>
-        <div class="chart" id="rate-chart"></div>
-        <div class="legend">
-          <span><i style="background:var(--accent)"></i>save %</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="pies">
-      <div class="panel">
-        <h2>Token disposition</h2>
-        <div class="pie-wrap">
-          <div id="pie-tokens" style="height:150px"></div>
-          <div class="legend col" id="pie-tokens-legend"></div>
-        </div>
-      </div>
-      <div class="panel">
-        <h2>Traffic mix</h2>
-        <div class="pie-wrap">
-          <div id="pie-traffic" style="height:150px"></div>
-          <div class="legend col" id="pie-traffic-legend"></div>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="head">
-          <h2>Models used</h2>
-          <span class="hint" id="models-hint">by tokens in</span>
-        </div>
-        <div class="pie-wrap">
-          <div id="pie-models" style="height:150px"></div>
-          <div class="legend col" id="pie-models-legend"></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="head">
-        <h2>Recent requests</h2>
-        <span class="hint" id="table-hint">filtered to window</span>
-      </div>
-      <div class="table-scroll" id="table-wrap"><div class="empty">Waiting for an agent or chat request…</div></div>
-    </section>
-
-    <footer class="site-footer">
-      <span>Universally Thinking | 2026</span>
-      <span><a href="/">classic v1</a></span>
-    </footer>
-  </div>
-<script>
 """
 
 DASHBOARD_HTML_V2 = DASHBOARD_HTML_V2_HEAD + DASHBOARD_JS + r"""
