@@ -1214,8 +1214,11 @@ def create_dashboard_app(store: StatsStore) -> web.Application:
 
 
 def start_dashboard_background(config: "Config", store: StatsStore) -> threading.Thread:
-    host = config.listen_host
+    from .config import dashboard_bind_host, dashboard_origin
+
+    host = dashboard_bind_host(config)
     port = getattr(config, "dashboard_port", 8081)
+    public = dashboard_origin(config)
 
     def runner() -> None:
         loop = asyncio.new_event_loop()
@@ -1227,7 +1230,7 @@ def start_dashboard_background(config: "Config", store: StatsStore) -> threading
             await runner_.setup()
             site = web.TCPSite(runner_, host, port)
             await site.start()
-            log.info("dashboard on http://%s:%s/ (v2: /v2)", host, port)
+            log.info("dashboard on %s/ (v2: %s/v2)", public, public)
             await asyncio.Event().wait()
 
         try:

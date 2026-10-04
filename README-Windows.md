@@ -262,6 +262,16 @@ netstat -ano | findstr :8080
 
 Stop the other process, or change ports in `config.yaml` (`listen_port`, `dashboard_port`).
 
+### Memorable dashboard URL
+
+Default alias is `http://tokensaver.local/` (no port). Install once (Admin PowerShell) — hosts entry + `netsh` portproxy `:80` → dashboard:
+
+```powershell
+.\.venv\Scripts\python.exe -m aiproxy --install-hostname
+```
+
+Direct URL still works: `http://127.0.0.1:8081/`.
+
 Allow local access if Windows Firewall prompts — aiproxy only needs **inbound** on `127.0.0.1` (loopback); no public exposure required.
 
 ---

@@ -2,7 +2,15 @@
 
 Local proxy that sits between **Cursor** / **Claude Code** and the model APIs. It strips bulky / duplicate context from JSON requests to save tokens, then forwards the cleaned request upstream.
 
-**Dashboard:** [http://127.0.0.1:8081/](http://127.0.0.1:8081/) — tokens & characters requested, forwarded, and saved.
+**Dashboard:** [http://tokensaver.local/](http://tokensaver.local/) (v2: [/v2](http://tokensaver.local/v2)) — tokens & characters requested, forwarded, and saved.
+
+One-time setup (hosts entry + port-80 forward so you don’t type `:8081`):
+
+```bash
+sudo .venv/bin/python -m aiproxy --install-hostname
+```
+
+That maps `tokensaver.local` → `127.0.0.2` and forwards `:80` → the dashboard port. Direct URL still works: `http://127.0.0.1:8081/`.
 
 <table>
   <tr>

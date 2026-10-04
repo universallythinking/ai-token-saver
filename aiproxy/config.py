@@ -44,6 +44,12 @@ class Config:
     listen_host: str = "127.0.0.1"
     listen_port: int = 8080
     dashboard_port: int = 8081
+    # Friendly local name for the dashboard (needs --install-hostname once).
+    # Install maps hostname → alias IP and forwards :alias_port → dashboard_port
+    # so http://tokensaver.local/ works without typing :8081.
+    dashboard_hostname: str = "tokensaver.local"
+    dashboard_alias_ip: str = "127.0.0.2"
+    dashboard_alias_port: int = 80
     mode: str = "mitm"
     openai_upstream: str = "https://api.openai.com"
     anthropic_upstream: str = "https://api.anthropic.com"
@@ -71,6 +77,13 @@ class Config:
             listen_host=raw.get("listen_host", "127.0.0.1"),
             listen_port=int(raw.get("listen_port", 8080)),
             dashboard_port=int(raw.get("dashboard_port", 8081)),
+            dashboard_hostname=str(
+                raw.get("dashboard_hostname", "tokensaver.local") or ""
+            ).strip(),
+            dashboard_alias_ip=str(
+                raw.get("dashboard_alias_ip", "127.0.0.2") or "127.0.0.2"
+            ).strip(),
+            dashboard_alias_port=int(raw.get("dashboard_alias_port", 80)),
             mode=raw.get("mode", "mitm"),
             openai_upstream=raw.get("openai_upstream", "https://api.openai.com"),
             anthropic_upstream=raw.get(
@@ -117,6 +130,47 @@ def _resolve_stats_path(stats_path: str, *, base: Path) -> str:
     if not p.is_absolute():
         p = base / p
     return str(p.resolve())
+
+
+def dashboard_bind_host(config: Config) -> str:
+    """Interface address the dashboard socket binds to."""
+    return config.listen_host
+
+
+def dashboard_public_host(config: Config) -> str:
+    """Hostname shown in URLs / banners (alias or loopback)."""
+    alias = (config.dashboard_hostname or "").strip()
+    if alias:
+        return alias
+    host = config.listen_host
+    if host in ("0.0.0.0", "::", "[::]"):
+        return "127.0.0.1"
+    return host
+
+
+def dashboard_public_port(config: Config) -> int:
+    """Port shown in public URLs (80 via alias when hostname is set)."""
+    if (config.dashboard_hostname or "").strip():
+        return int(config.dashboard_alias_port or 80)
+    return int(config.dashboard_port)
+
+
+def dashboard_origin(config: Config) -> str:
+    host = dashboard_public_host(config)
+    port = dashboard_public_port(config)
+    if port == 80:
+        return f"http://{host}"
+    if port == 443:
+        return f"https://{host}"
+    return f"http://{host}:{port}"
+
+
+def dashboard_direct_origin(config: Config) -> str:
+    """Loopback URL that always hits the dashboard socket (includes port)."""
+    host = config.listen_host
+    if host in ("0.0.0.0", "::", "[::]"):
+        host = "127.0.0.1"
+    return f"http://{host}:{config.dashboard_port}"
 
 
 def host_matches(host: str, patterns: list[str]) -> bool:

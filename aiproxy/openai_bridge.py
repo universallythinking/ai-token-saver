@@ -156,9 +156,11 @@ async def handle(request: web.Request) -> web.StreamResponse:
 
 
 def _banner(config: Config) -> str:
+    from .config import dashboard_origin
+
     base = f"http://{config.listen_host}:{config.listen_port}"
-    dash = f"http://{config.listen_host}:{config.dashboard_port}/"
-    dash_v2 = f"http://{config.listen_host}:{config.dashboard_port}/v2"
+    dash = f"{dashboard_origin(config)}/"
+    dash_v2 = f"{dashboard_origin(config)}/v2"
     dry = config.strip.dry_run
     if config.mode == "anthropic":
         return (

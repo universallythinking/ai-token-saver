@@ -73,7 +73,10 @@ cd "{root}"
 
 
 def _cursor_settings_snippet(config) -> str:  # noqa: ANN001
+    from .config import dashboard_origin
+
     proxy = f"http://{config.listen_host}:{config.listen_port}"
+    dash = dashboard_origin(config)
     ca = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
     py = _venv_python()
     return f"""{_install_snippet()}
@@ -98,7 +101,7 @@ open -a Cursor
 }}
 
 # 5) Fully quit Cursor (Cmd+Q) and relaunch with NODE_EXTRA_CA_CERTS set.
-# Dashboard: http://{config.listen_host}:{config.dashboard_port}/
+# Dashboard: {dash}/
 #
 # --- Alternative: OpenAI Base URL (BYOK only) ---
 # {py} -m aiproxy --mode openai
@@ -107,7 +110,10 @@ open -a Cursor
 
 
 def _claude_settings_snippet(config) -> str:  # noqa: ANN001
+    from .config import dashboard_origin
+
     proxy = f"http://{config.listen_host}:{config.listen_port}"
+    dash = dashboard_origin(config)
     ca = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
     py = _venv_python()
     return f"""{_install_snippet()}
@@ -130,7 +136,7 @@ claude
 #   }}
 # }}
 #
-# Dashboard: http://{config.listen_host}:{config.dashboard_port}/
+# Dashboard: {dash}/
 #
 # --- Alternative: MITM via HTTPS_PROXY ---
 # {py} -m aiproxy --mode mitm --dry-run
@@ -172,11 +178,25 @@ def _run_mitm(config) -> int:  # noqa: ANN001
         "-s",
         str(addon_path),
     ]
+    from .config import dashboard_direct_origin, dashboard_origin
+    from .local_hostname import hostname_configured
+
     ca = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
+    dash = dashboard_origin(config)
+    direct = dashboard_direct_origin(config)
+    alias = (config.dashboard_hostname or "").strip()
+    alias_note = ""
+    if alias and not hostname_configured(alias, alias_ip=config.dashboard_alias_ip):
+        alias_note = (
+            f"\n(to use {dash}/ without a port — "
+            f"sudo .venv/bin/python -m aiproxy --install-hostname)\n"
+            f"direct          {direct}/\n"
+        )
     print(
         f"aiproxy mitm on {config.listen_host}:{config.listen_port}\n"
-        f"dashboard      http://{config.listen_host}:{config.dashboard_port}/\n"
-        f"dashboard v2   http://{config.listen_host}:{config.dashboard_port}/v2\n"
+        f"dashboard      {dash}/\n"
+        f"dashboard v2   {dash}/v2\n"
+        f"{alias_note}"
         f"Dry-run={config.strip.dry_run}  http2=off (use Cursor disableHttp2)\n"
         f"\n"
         f"Cursor settings.json:\n"
@@ -229,9 +249,18 @@ def main(argv: list[str] | None = None) -> int:  # setuptools entry point
         action="store_true",
         help="Print Claude Code env / settings snippet and exit",
     )
+    parser.add_argument(
+        "--install-hostname",
+        action="store_true",
+        help=(
+            "Map dashboard_hostname to a loopback IP and forward :80 → dashboard "
+            "so http://tokensaver.local/ works without a port"
+        ),
+    )
     args = parser.parse_args(argv)
 
-    from .config import Config
+    from .config import Config, dashboard_direct_origin, dashboard_origin
+    from .local_hostname import install_hostname, print_install_help
 
     config = Config.load(args.config)
     config._config_path = str(Path(args.config).resolve())  # type: ignore[attr-defined]
@@ -255,6 +284,30 @@ def main(argv: list[str] | None = None) -> int:  # setuptools entry point
     if args.print_claude_settings:
         print(_claude_settings_snippet(config))
         return 0
+    if args.install_hostname:
+        host = (config.dashboard_hostname or "").strip() or "tokensaver.local"
+        print_install_help(
+            host,
+            dashboard_port=config.dashboard_port,
+            alias_ip=config.dashboard_alias_ip,
+            alias_port=config.dashboard_alias_port,
+        )
+        target = config.listen_host
+        if target in ("0.0.0.0", "::", "[::]"):
+            target = "127.0.0.1"
+        ok, msg = install_hostname(
+            host,
+            alias_ip=config.dashboard_alias_ip,
+            alias_port=config.dashboard_alias_port,
+            target_host=target,
+            target_port=config.dashboard_port,
+            python_exe=sys.executable,
+        )
+        print(msg)
+        if ok:
+            print(f"Open {dashboard_origin(config)}/")
+            print(f"(direct {dashboard_direct_origin(config)}/ still works)")
+        return 0 if ok else 1
 
     os.environ["AIPROXY_CONFIG"] = config._config_path  # type: ignore[attr-defined]
 

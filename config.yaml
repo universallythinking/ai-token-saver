@@ -4,6 +4,13 @@ listen_host: "127.0.0.1"
 listen_port: 8080
 # Live savings dashboard (requested / forwarded / saved tok+chars)
 dashboard_port: 8081
+# Friendly local URL: http://tokensaver.local/  (no port)
+# One-time: sudo .venv/bin/python -m aiproxy --install-hostname
+#   → hosts: 127.0.0.2 tokensaver.local
+#   → LaunchDaemon/portproxy: :80 → dashboard_port
+dashboard_hostname: "tokensaver.local"
+dashboard_alias_ip: "127.0.0.2"
+dashboard_alias_port: 80
 # Persisted across launches (totals, recent requests, chart buckets)
 stats_path: "logs/stats.json"
 
