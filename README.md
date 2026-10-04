@@ -2,15 +2,31 @@
 
 Local proxy that sits between **Cursor** / **Claude Code** and the model APIs. It strips bulky / duplicate context from JSON requests to save tokens, then forwards the cleaned request upstream.
 
-**Dashboard:** [http://tokensaver.local/](http://tokensaver.local/) (v2: [/v2](http://tokensaver.local/v2)) — tokens & characters requested, forwarded, and saved.
+**Dashboard:** [http://tokensaver.local/](http://tokensaver.local/) · [v2](http://tokensaver.local/v2) — tokens & characters requested, forwarded, and saved.
 
-One-time setup (hosts entry + port-80 forward so you don’t type `:8081`):
+### Memorable URL (optional, once)
+
+So you can open **http://tokensaver.local/** without typing `:8081`:
 
 ```bash
-sudo .venv/bin/python -m aiproxy --install-hostname
+cd /path/to/ai-token-saver   # must be the project root
+sudo "$(pwd)/.venv/bin/python" -m aiproxy --install-hostname
 ```
 
-That maps `tokensaver.local` → `127.0.0.2` and forwards `:80` → whatever `dashboard_port` is in `config.yaml` (auto-detected; no reinstall when the port changes). Direct URL still works: `http://127.0.0.1:8081/`.
+Use the **absolute** venv path — `sudo .venv/bin/python …` often fails with `command not found` because sudo does not keep your relative cwd the way you expect.
+
+Example with a full path:
+
+```bash
+sudo /Users/you/code/ai-token-saver/.venv/bin/python -m aiproxy --install-hostname \
+  -c /Users/you/code/ai-token-saver/config.yaml
+```
+
+What it installs:
+- `/etc/hosts` → `127.0.0.2 tokensaver.local`
+- a small privileged forwarder: `:80` → `dashboard_port` from `config.yaml` (auto-detected if you change the port later)
+
+Direct URL always works: [http://127.0.0.1:8081/](http://127.0.0.1:8081/). Name/IP/port are set via `dashboard_hostname`, `dashboard_alias_ip`, `dashboard_alias_port`, and `dashboard_port` in `config.yaml`.
 
 <table>
   <tr>
@@ -37,6 +53,22 @@ That maps `tokensaver.local` → `127.0.0.2` and forwards `:80` → whatever `da
 |----|--------|
 | macOS | [`start-mac.command`](start-mac.command) |
 | Windows | [`start-windows.bat`](start-windows.bat) |
+
+### macOS app (Applications + Dock)
+
+Install a **Token Saver** app you can launch from `/Applications` (or `~/Applications`). Quit from the Dock stops the proxy and dashboard processes:
+
+```bash
+cd /path/to/ai-token-saver
+chmod +x macos/install-to-applications.sh macos/start.sh macos/stop.sh
+./macos/install-to-applications.sh
+open -a "Token Saver"
+```
+
+- Uses prefs from `.aiproxy_runtime.env` (Quick start in `start-mac.command`)
+- Logs: `~/Library/Logs/TokenSaver/proxy.log`
+- Re-run `install-to-applications.sh` after moving the repo
+- Does **not** stop the optional `tokensaver.local` port-80 forwarder (that stays as a system service)
 
 Or manually:
 
@@ -177,7 +209,8 @@ Your API key stays wherever you already keep it (`ANTHROPIC_API_KEY` or Claude l
 
 | Check | Expected |
 |-------|----------|
-| Dashboard open | [http://127.0.0.1:8081/](http://127.0.0.1:8081/) loads |
+| Dashboard open | [http://tokensaver.local/](http://tokensaver.local/) or [http://127.0.0.1:8081/](http://127.0.0.1:8081/) loads |
+| Ops board | [http://tokensaver.local/v2](http://tokensaver.local/v2) (denser metrics) |
 | Send a chat in Cursor or Claude | **Requested** counters rise |
 | Strip rules fire | **Saved** tokens/chars > 0 (or notes in dry-run logs) |
 | `logs/` | `*.meta.json` before/after dumps when bodies change |
@@ -215,7 +248,9 @@ Configured in `config.yaml` under `strip:`
 | What | Where |
 |------|--------|
 | Proxy | `127.0.0.1:8080` |
-| Dashboard | `127.0.0.1:8081` |
+| Dashboard (direct) | `127.0.0.1:8081` |
+| Dashboard (alias) | `http://tokensaver.local/` after `--install-hostname` |
+| Dashboard v2 | `http://tokensaver.local/v2` or `http://127.0.0.1:8081/v2` |
 | Config | `config.yaml` |
 | Stats (persisted across launches) | `logs/stats.json` |
 | Body dumps | `logs/` |
@@ -230,6 +265,10 @@ Configured in `config.yaml` under `strip:`
 open start-mac.command
 # Windows: double-click start-windows.bat
 
+# macOS Dock app (Applications) — Quit stops all proxy processes
+./macos/install-to-applications.sh
+open -a "Token Saver"
+
 # or manually
 cd ~/code/aiproxy
 python3 -m venv .venv
@@ -243,4 +282,8 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:8080 && claude
 # snippets
 .venv/bin/python -m aiproxy --print-cursor-settings
 .venv/bin/python -m aiproxy --print-claude-settings
+
+# memorable dashboard URL (once; use absolute path with sudo)
+sudo "$(pwd)/.venv/bin/python" -m aiproxy --install-hostname
+# → http://tokensaver.local/  and  http://tokensaver.local/v2
 ```

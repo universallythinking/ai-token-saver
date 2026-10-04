@@ -264,13 +264,22 @@ Stop the other process, or change ports in `config.yaml` (`listen_port`, `dashbo
 
 ### Memorable dashboard URL
 
-Default alias is `http://tokensaver.local/` (no port). Install once (Admin PowerShell) — hosts entry + startup task that forwards `:80` using `dashboard_port` from `config.yaml` (auto-updates if the port changes):
+Default alias is **http://tokensaver.local/** (no port). Install once from an **Administrator** PowerShell in the project root — hosts entry + startup task that forwards `:80` using `dashboard_port` from `config.yaml` (auto-detected if the port changes later):
 
 ```powershell
-.\.venv\Scripts\python.exe -m aiproxy --install-hostname
+cd C:\path\to\ai-token-saver
+# Prefer the absolute path (relative .\ .venv\… under elevation is easy to get wrong)
+& "$(Get-Location)\.venv\Scripts\python.exe" -m aiproxy --install-hostname
 ```
 
-Direct URL still works: `http://127.0.0.1:8081/`.
+Or:
+
+```powershell
+& "C:\path\to\ai-token-saver\.venv\Scripts\python.exe" -m aiproxy --install-hostname `
+  -c "C:\path\to\ai-token-saver\config.yaml"
+```
+
+Direct URL still works: `http://127.0.0.1:8081/` · ops board: `http://tokensaver.local/v2`
 
 Allow local access if Windows Firewall prompts — aiproxy only needs **inbound** on `127.0.0.1` (loopback); no public exposure required.
 
@@ -295,6 +304,10 @@ claude
 # snippets
 .\.venv\Scripts\python.exe -m aiproxy --print-cursor-settings
 .\.venv\Scripts\python.exe -m aiproxy --print-claude-settings
+
+# memorable dashboard URL (once; Admin PowerShell; use absolute path)
+& "$(Get-Location)\.venv\Scripts\python.exe" -m aiproxy --install-hostname
+# → http://tokensaver.local/  and  http://tokensaver.local/v2
 
 # tests
 .\.venv\Scripts\python.exe -m aiproxy.test_stripper

@@ -5,7 +5,7 @@ listen_port: 8080
 # Live savings dashboard (requested / forwarded / saved tok+chars)
 dashboard_port: 8081
 # Friendly local URL: http://tokensaver.local/  (no port)
-# One-time: sudo .venv/bin/python -m aiproxy --install-hostname
+# One-time: sudo "$(pwd)/.venv/bin/python" -m aiproxy --install-hostname
 #   → hosts: 127.0.0.2 tokensaver.local
 #   → privileged alias service reads dashboard_port from this file
 #     (change the port anytime — no need to reinstall the hostname)

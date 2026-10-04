@@ -8,3 +8,5 @@ logs/
 dist/
 build/
 .DS_Store
+# Built by macos/install-to-applications.sh (contains machine-local ProjectRoot)
+macos/Token Saver.app/

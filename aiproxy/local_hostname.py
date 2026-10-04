@@ -110,6 +110,15 @@ def ensure_hosts_entry(hostname: str, alias_ip: str = DEFAULT_ALIAS_IP) -> tuple
     return True, f"{action} {line!r} in {path}"
 
 
+def sudo_install_command(*, python_exe: str | None = None, config_path: str | Path | None = None) -> str:
+    """Absolute-path install command (sudo + relative .venv often fails)."""
+    py = str(Path(python_exe or sys.executable).resolve())
+    cmd = f"sudo {py} -m aiproxy --install-hostname"
+    if config_path:
+        cmd += f" -c {Path(config_path).expanduser().resolve()}"
+    return cmd
+
+
 def _hosts_permission_hint(path: Path, line: str) -> str:
     if platform.system() == "Windows":
         hint = (
@@ -117,10 +126,7 @@ def _hosts_permission_hint(path: Path, line: str) -> str:
             f'  Add-Content -Path "{path}" -Value "{line}"'
         )
     else:
-        hint = (
-            "Re-run with sudo:\n"
-            "  sudo .venv/bin/python -m aiproxy --install-hostname"
-        )
+        hint = f"Re-run with sudo (use the absolute path):\n  {sudo_install_command()}"
     return f"need permission to write {path}\n{hint}"
 
 
@@ -205,8 +211,8 @@ def _install_launchd(*, config_path: Path, python_exe: str) -> tuple[bool, str]:
     except PermissionError:
         return False, (
             f"need permission to write {LAUNCHD_PLIST}\n"
-            "Re-run with sudo:\n"
-            "  sudo .venv/bin/python -m aiproxy --install-hostname"
+            f"Re-run with sudo (use the absolute path):\n"
+            f"  {sudo_install_command(python_exe=python_exe, config_path=config_path)}"
         )
     except OSError as e:
         return False, f"could not write {LAUNCHD_PLIST}: {e}"
@@ -331,8 +337,8 @@ WantedBy=multi-user.target
     except PermissionError:
         return False, (
             f"need permission to write {unit_path}\n"
-            "Re-run with sudo:\n"
-            "  sudo .venv/bin/python -m aiproxy --install-hostname"
+            f"Re-run with sudo (use the absolute path):\n"
+            f"  {sudo_install_command(python_exe=python_exe, config_path=config_path)}"
         )
     except OSError as e:
         return False, f"could not write {unit_path}: {e}"
@@ -359,6 +365,8 @@ def print_install_help(
     dashboard_port: int = 8081,
     alias_ip: str = DEFAULT_ALIAS_IP,
     alias_port: int = DEFAULT_ALIAS_PORT,
+    python_exe: str | None = None,
+    config_path: str | Path | None = None,
 ) -> None:
     path = hosts_path()
     line = hosts_line(hostname, alias_ip)
@@ -374,10 +382,11 @@ def print_install_help(
     else:
         print("Not configured yet. One-time install:")
         if platform.system() == "Windows":
+            py = str(Path(python_exe or sys.executable).resolve())
             print("  # elevated PowerShell")
-            print("  .\\.venv\\Scripts\\python.exe -m aiproxy --install-hostname")
+            print(f'  & "{py}" -m aiproxy --install-hostname')
         else:
-            print("  sudo .venv/bin/python -m aiproxy --install-hostname")
+            print(f"  {sudo_install_command(python_exe=python_exe, config_path=config_path)}")
             print(f"  # hosts line: {line}")
     print()
     print("Direct URL (always works, no alias):")

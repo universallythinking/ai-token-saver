@@ -187,9 +187,11 @@ def _run_mitm(config) -> int:  # noqa: ANN001
     alias = (config.dashboard_hostname or "").strip()
     alias_note = ""
     if alias and not hostname_configured(alias, alias_ip=config.dashboard_alias_ip):
+        from .local_hostname import sudo_install_command
+
         alias_note = (
-            f"\n(to use {dash}/ without a port — "
-            f"sudo .venv/bin/python -m aiproxy --install-hostname)\n"
+            f"\n(to use {dash}/ without a port —\n"
+            f"  {sudo_install_command(config_path=getattr(config, '_config_path', None))})\n"
             f"direct          {direct}/\n"
         )
     print(
@@ -291,6 +293,8 @@ def main(argv: list[str] | None = None) -> int:  # setuptools entry point
             dashboard_port=config.dashboard_port,
             alias_ip=config.dashboard_alias_ip,
             alias_port=config.dashboard_alias_port,
+            python_exe=sys.executable,
+            config_path=config._config_path,  # type: ignore[attr-defined]
         )
         ok, msg = install_hostname(
             host,
