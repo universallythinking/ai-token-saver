@@ -1,32 +1,13 @@
-# aiproxy
+# Token Saver (aiproxy)
 
-Local proxy that sits between **Cursor** / **Claude Code** and the model APIs. It strips bulky / duplicate context from JSON requests to save tokens, then forwards the cleaned request upstream.
+Local proxy between **Cursor** / **Claude Code** and the model APIs. It strips bulky or duplicate context from requests so you send fewer tokens, then forwards the cleaned request upstream.
 
-**Dashboard:** [http://tokensaver.local/](http://tokensaver.local/) · [v2](http://tokensaver.local/v2) — tokens & characters requested, forwarded, and saved.
-
-### Memorable URL (optional, once)
-
-So you can open **http://tokensaver.local/** without typing `:8081`:
-
-```bash
-cd /path/to/ai-token-saver   # must be the project root
-sudo "$(pwd)/.venv/bin/python" -m aiproxy --install-hostname
-```
-
-Use the **absolute** venv path — `sudo .venv/bin/python …` often fails with `command not found` because sudo does not keep your relative cwd the way you expect.
-
-Example with a full path:
-
-```bash
-sudo /Users/you/code/ai-token-saver/.venv/bin/python -m aiproxy --install-hostname \
-  -c /Users/you/code/ai-token-saver/config.yaml
-```
-
-What it installs:
-- `/etc/hosts` → `127.0.0.2 tokensaver.local`
-- a small privileged forwarder: `:80` → `dashboard_port` from `config.yaml` (auto-detected if you change the port later)
-
-Direct URL always works: [http://127.0.0.1:8081/](http://127.0.0.1:8081/). Name/IP/port are set via `dashboard_hostname`, `dashboard_alias_ip`, `dashboard_alias_port`, and `dashboard_port` in `config.yaml`.
+| | |
+|---|---|
+| **Dashboard** | [http://127.0.0.1:8081/](http://127.0.0.1:8081/) |
+| **Memorable URL** | [http://tokensaver.local/](http://tokensaver.local/) *(optional — see below)* |
+| **Ops board** | [http://127.0.0.1:8081/v2](http://127.0.0.1:8081/v2) |
+| **Printable guide** | [README.pdf](README.pdf) |
 
 <table>
   <tr>
@@ -39,104 +20,97 @@ Direct URL always works: [http://127.0.0.1:8081/](http://127.0.0.1:8081/). Name/
   </tr>
 </table>
 
-> **Python note:** On macOS/Linux use **`python3`** to create the venv. After that, always run aiproxy with **`.venv/bin/python`** (not system `python` / `python3`) so deps resolve. Printable setup snippets already bake this in.
->
-> **Windows:** see [README-Windows.md](README-Windows.md) (PowerShell paths, `.venv\Scripts\python.exe`, CA trust).
+---
+
+## Quick start
+
+### macOS
+
+1. Double-click **`start-mac.command`** — installs deps, asks Cursor vs Claude, starts the proxy.
+2. Double-click **`install-to-applications.command`** (or **Install to Applications**) — puts **Token Saver** in `/Applications` with a Dock icon.
+3. Open **Token Saver** from Applications / Dock → dashboard opens in your browser.
+4. Click the Dock icon again to focus the existing dashboard tab (does not relaunch). **Quit** from the Dock stops the proxy.
+
+### Windows
+
+1. Double-click **`start-windows.bat`** — installs deps, asks Cursor vs Claude, starts the proxy.
+2. Open [http://127.0.0.1:8081/](http://127.0.0.1:8081/) for the dashboard.
+3. Full Windows notes (CA trust, PowerShell paths): [README-Windows.md](README-Windows.md)
+
+> Always run the proxy with the **venv Python** (`.venv/bin/python` on Mac, `.venv\Scripts\python.exe` on Windows) — not system `python`.
 
 ---
 
 ## 1. Install (once)
 
-**Easiest:** double-click the start script (asks Cursor vs Claude, installs deps, starts proxy):
+| OS | Easiest | Manual |
+|----|---------|--------|
+| **macOS** | `start-mac.command` | `python3 -m venv .venv` then `.venv/bin/python -m pip install -r requirements.txt -e .` |
+| **Windows** | `start-windows.bat` | `python -m venv .venv` then `.\.venv\Scripts\python.exe -m pip install -r requirements.txt -e .` |
 
-| OS | Script |
-|----|--------|
-| macOS | [`start-mac.command`](start-mac.command) |
-| Windows | [`start-windows.bat`](start-windows.bat) |
-
-### macOS app (Applications + Dock)
-
-Install a **Token Saver** app you can launch from `/Applications` (or `~/Applications`). Quit from the Dock stops the proxy and dashboard processes:
+Print ready-to-copy Cursor / Claude snippets:
 
 ```bash
-cd /path/to/ai-token-saver
-chmod +x macos/install-to-applications.sh macos/start.sh macos/stop.sh
-./macos/install-to-applications.sh
+# macOS / Linux
+.venv/bin/python -m aiproxy --print-cursor-settings
+.venv/bin/python -m aiproxy --print-claude-settings
+```
+
+```powershell
+# Windows
+.\.venv\Scripts\python.exe -m aiproxy --print-cursor-settings
+.\.venv\Scripts\python.exe -m aiproxy --print-claude-settings
+```
+
+### macOS Dock app
+
+```bash
+./install-to-applications.command
 open -a "Token Saver"
 ```
 
 - Uses prefs from `.aiproxy_runtime.env` / session (Quick start in `start-mac.command`)
-- On launch, opens **http://127.0.0.1:8081/?setup=1** (loopback — reliable). `tokensaver.local` needs the port-80 alias (`--install-hostname`)
-- If the proxy is already running, the Dock app **only opens the dashboard** (does not restart/kill it)
+- First launch → [http://127.0.0.1:8081/?setup=1](http://127.0.0.1:8081/?setup=1)
+- Dock click while open → focuses the existing dashboard tab (same path, no relaunch)
 - Logs: `~/Library/Logs/TokenSaver/proxy.log`
-- Re-run `install-to-applications.sh` after moving the repo (also refreshes the Dock icon)
-- Does **not** stop the optional `tokensaver.local` port-80 forwarder (that stays as a system service)
-
-Or manually:
-
-```bash
-cd ~/code/aiproxy
-python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m pip install -e .
-```
-
-Optional: `source .venv/bin/activate` — then bare `python` is the venv. Safest without activate:
-
-```bash
-.venv/bin/python -m aiproxy --dry-run
-```
-
-Print ready-to-copy install + connect snippets:
-
-```bash
-.venv/bin/python -m aiproxy --print-cursor-settings
-.venv/bin/python -m aiproxy --print-claude-settings
-```
+- Re-run the installer after moving the repo
+- Does **not** stop the optional `tokensaver.local` port-80 forwarder
 
 ---
 
 ## 2. Pick a mode
 
-| Mode | Command | Best for | CA cert needed? |
-|------|---------|----------|-----------------|
-| **mitm** (default) | `.venv/bin/python -m aiproxy` | Cursor default models (HTTPS intercept) | Yes |
-| **reverse** | `.venv/bin/python -m aiproxy --mode reverse` | Cursor BYOK **and** Claude Code (JSON strip) | No |
-| **openai** | `.venv/bin/python -m aiproxy --mode openai` | Cursor OpenAI Base URL / BYOK only | No |
-| **anthropic** | `.venv/bin/python -m aiproxy --mode anthropic` | Claude Code via `ANTHROPIC_BASE_URL` only | No |
+| Mode | Best for | CA cert? |
+|------|----------|----------|
+| **mitm** | Cursor default models (HTTPS intercept) | Yes |
+| **reverse** | Cursor BYOK **and** Claude Code (JSON strip) | No |
+| **openai** | Cursor OpenAI Base URL / BYOK only | No |
+| **anthropic** | Claude Code via `ANTHROPIC_BASE_URL` only | No |
 
 **Recommendation**
 
-- Cursor without BYOK → **mitm** (replies stream; protobuf bodies mostly passthrough)
-- Claude Code / Cursor BYOK → **reverse** / **anthropic** / **openai** (real JSON stripping)
+- Cursor without BYOK → **mitm**
+- Claude Code / Cursor BYOK → **reverse** / **anthropic** / **openai**
+- On Windows, prefer **reverse** (default) unless you need raw MITM
 
-Start in dry-run first (logs savings, does **not** change bodies):
-
-```bash
-.venv/bin/python -m aiproxy --dry-run
-```
-
-When you’re happy with the dashboard numbers:
+Start dry-run first (logs savings, does **not** change bodies):
 
 ```bash
-.venv/bin/python -m aiproxy
+.venv/bin/python -m aiproxy --dry-run          # macOS
+.\.venv\Scripts\python.exe -m aiproxy --dry-run # Windows
 ```
 
 ---
 
-## 3. Connect Cursor (MITM — default models)
+## 3. Connect Cursor
 
-aiproxy streams SSE/Connect **responses** immediately (so replies work) and buffers agent **requests** to truncate large protobuf string fields (file dumps, tool output, etc.).
-
-**Terminal 1**
+### MITM (default models) — macOS
 
 ```bash
-cd ~/code/aiproxy
 .venv/bin/python -m aiproxy --mode mitm --dry-run
 ```
 
-**Trust the CA (macOS, once)**
+Trust the CA once:
 
 ```bash
 sudo security add-trusted-cert -d -r trustRoot \
@@ -144,7 +118,7 @@ sudo security add-trusted-cert -d -r trustRoot \
   ~/.mitmproxy/mitmproxy-ca-cert.pem
 ```
 
-**Cursor `settings.json`**
+Cursor `settings.json`:
 
 ```json
 {
@@ -155,40 +129,45 @@ sudo security add-trusted-cert -d -r trustRoot \
 }
 ```
 
-Fully quit Cursor (**Cmd+Q**), then relaunch with the CA for Node:
+Quit Cursor fully (**Cmd+Q**), then:
 
 ```bash
 export NODE_EXTRA_CA_CERTS="$HOME/.mitmproxy/mitmproxy-ca-cert.pem"
 open -a Cursor
 ```
 
-Watch [http://127.0.0.1:8081/](http://127.0.0.1:8081/). You should see `api2.cursor.sh` / `api5.cursor.sh` traffic and replies should stream again.
+### OpenAI BYOK (Mac or Windows)
 
-**BYOK alternative:** `.venv/bin/python -m aiproxy --mode openai` + OpenAI Base URL `http://127.0.0.1:8080/v1` (JSON stripping; no CA).
+```bash
+.venv/bin/python -m aiproxy --mode openai --dry-run
+```
+
+Cursor → Settings → Models → OpenAI Base URL: `http://127.0.0.1:8080/v1`  
+No CA. Leave `http.proxy` unset. On Windows this is the recommended Cursor path — see [README-Windows.md](README-Windows.md).
 
 ---
 
-## 4. Connect Claude Code (recommended)
+## 4. Connect Claude Code
 
-**Terminal 1 — start reverse proxy**
+**Terminal 1 — proxy**
 
 ```bash
-cd ~/code/aiproxy
-.venv/bin/python -m aiproxy --dry-run
+.venv/bin/python -m aiproxy --mode anthropic --dry-run   # or --mode reverse
 ```
 
-**Terminal 2 — run Claude through it**
+**Terminal 2 — Claude**
 
 ```bash
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8080"
-# keep your existing key:
-# export ANTHROPIC_API_KEY="sk-ant-..."
 claude
 ```
 
-Inside Claude, run `/status` and confirm the base URL is `http://127.0.0.1:8080`.
+```powershell
+$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:8080"
+claude
+```
 
-**Persist for every Claude session** — add to `~/.claude/settings.json`:
+Persist in `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`):
 
 ```json
 {
@@ -198,94 +177,99 @@ Inside Claude, run `/status` and confirm the base URL is `http://127.0.0.1:8080`
 }
 ```
 
-Your API key stays wherever you already keep it (`ANTHROPIC_API_KEY` or Claude login). aiproxy forwards `x-api-key` / `Authorization` headers unchanged.
-
-### What this does *not* cover
-
-- **claude.ai** in the browser — not supported
-- **Claude Desktop** — no supported Base URL hook; use Claude Code or MITM if you control the process env
+Not covered: **claude.ai** in the browser, **Claude Desktop** (no Base URL hook).
 
 ---
 
-## 5. Verify it’s working
+## 5. Memorable dashboard URL (optional)
+
+So you can open **http://tokensaver.local/** without `:8081`:
+
+```bash
+# macOS — use the absolute venv path with sudo
+cd /path/to/ai-token-saver
+sudo "$(pwd)/.venv/bin/python" -m aiproxy --install-hostname
+```
+
+```powershell
+# Windows — Administrator PowerShell
+cd C:\path\to\ai-token-saver
+& "$(Get-Location)\.venv\Scripts\python.exe" -m aiproxy --install-hostname
+```
+
+Installs `/etc/hosts` (or Windows hosts) → `tokensaver.local`, plus a small `:80` → dashboard forwarder.
+
+---
+
+## 6. Verify
 
 | Check | Expected |
 |-------|----------|
-| Dashboard open | [http://tokensaver.local/](http://tokensaver.local/) or [http://127.0.0.1:8081/](http://127.0.0.1:8081/) loads |
-| Ops board | [http://tokensaver.local/v2](http://tokensaver.local/v2) (denser metrics) |
-| Send a chat in Cursor or Claude | **Requested** counters rise |
-| Strip rules fire | **Saved** tokens/chars > 0 (or notes in dry-run logs) |
-| `logs/` | `*.meta.json` before/after dumps when bodies change |
+| Dashboard | [http://127.0.0.1:8081/](http://127.0.0.1:8081/) loads |
+| Chat in Cursor / Claude | **Requested** counters rise |
+| Strip rules fire | **Saved** > 0 (or dry-run log notes) |
+| `logs/` | `*.meta.json` when bodies change |
 
-Safe rollout:
-
-1. `--dry-run` → watch dashboard
-2. Tune `config.yaml` → `strip` if needed
-3. Restart **without** `--dry-run` to actually forward stripped bodies
+Safe rollout: dry-run → tune `config.yaml` `strip:` → restart without `--dry-run`.
 
 ---
 
-## 6. What gets stripped
+## 7. What gets stripped
+
+**Goals (priority order):** quality → speed → efficiency → token savings.  
+A strip that forces re-Grep/re-Read or worse answers is a net loss — we keep explore tool payloads and drop only low-value bytes (dupes, boilerplate, opaque reasoning signatures).
 
 Configured in `config.yaml` under `strip:`
 
-| Rule | Default idea |
-|------|----------------|
+| Rule | Idea |
+|------|------|
 | `max_messages` | Keep last N turns (+ system) |
 | `max_chars_recent` / `max_chars_old` | Cap huge file dumps |
 | `dedupe_file_blocks` | Collapse duplicate path/code blocks |
 | `max_tool_result_chars` | Truncate old tool output |
 | `drop_reasoning_parts` | Drop thinking/reasoning blobs |
-| `compress_system` / `max_system_chars` | Shrink oversized system prompts (incl. Anthropic `system`) |
+| `compress_system` / `max_system_chars` | Shrink oversized system prompts |
 | `drop_keys` | Remove noisy JSON fields |
 
-**Cursor (mitm):** agent paths (`AgentService`, `BidiService`, …) are Connect/protobuf. aiproxy buffers those **requests**, truncates large UTF-8 string fields in the protobuf wire format (no `.proto` files needed), and still **streams responses** so replies work. Telemetry paths stay passthrough.
-
-**Claude / OpenAI reverse-proxy:** unchanged — JSON bodies only, via `--mode anthropic` / `openai` / `reverse`.
+**Cursor (mitm):** agent protobuf requests are buffered and large UTF-8 string fields truncated; responses still stream.  
+**Claude / OpenAI reverse-proxy:** JSON bodies via `--mode anthropic` / `openai` / `reverse`.
 
 ---
 
-## 7. Ports & files
+## 8. Ports & files
 
 | What | Where |
 |------|--------|
 | Proxy | `127.0.0.1:8080` |
-| Dashboard (direct) | `127.0.0.1:8081` |
-| Dashboard (alias) | `http://tokensaver.local/` after `--install-hostname` |
-| Dashboard v2 | `http://tokensaver.local/v2` or `http://127.0.0.1:8081/v2` |
+| Dashboard | `127.0.0.1:8081` |
+| Alias | `http://tokensaver.local/` after `--install-hostname` |
 | Config | `config.yaml` |
-| Stats (persisted across launches) | `logs/stats.json` |
+| Stats | `logs/stats.json` |
 | Body dumps | `logs/` |
-| mitmproxy CA | `~/.mitmproxy/mitmproxy-ca-cert.pem` |
+| mitmproxy CA | `~/.mitmproxy/mitmproxy-ca-cert.pem` (Windows: `%USERPROFILE%\.mitmproxy\`) |
+| macOS app logs | `~/Library/Logs/TokenSaver/proxy.log` |
 
 ---
 
-## 8. Quick reference
+## 9. Quick reference
 
 ```bash
-# interactive install + start (macOS)
+# macOS
 open start-mac.command
-# Windows: double-click start-windows.bat
-
-# macOS Dock app (Applications) — Quit stops all proxy processes
-./macos/install-to-applications.sh
+./install-to-applications.command
 open -a "Token Saver"
 
-# or manually
-cd ~/code/aiproxy
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m aiproxy --mode mitm --dry-run
-
-# Claude Code (anthropic reverse proxy)
 .venv/bin/python -m aiproxy --mode anthropic --dry-run
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8080 && claude
-
-# snippets
-.venv/bin/python -m aiproxy --print-cursor-settings
-.venv/bin/python -m aiproxy --print-claude-settings
-
-# memorable dashboard URL (once; use absolute path with sudo)
 sudo "$(pwd)/.venv/bin/python" -m aiproxy --install-hostname
-# → http://tokensaver.local/  and  http://tokensaver.local/v2
+```
+
+```powershell
+# Windows
+.\start-windows.bat
+.\.venv\Scripts\python.exe -m aiproxy --dry-run
+$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:8080"; claude
+# Cursor BYOK Base URL: http://127.0.0.1:8080/v1
+& "$(Get-Location)\.venv\Scripts\python.exe" -m aiproxy --install-hostname
 ```

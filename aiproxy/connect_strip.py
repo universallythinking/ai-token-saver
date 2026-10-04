@@ -12,7 +12,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from .config import StripConfig
 from .stripper import (
     SYSTEM_BOILERPLATE_MARKERS,
@@ -42,8 +42,28 @@ CURSOR_NEVER_STRIP_PATH_RE = re.compile(
     r"/v1/traces|FileSyncService|DashboardService|rgstr|"
     r"GetTeam|GetUser|GetUsage|GetBackground|GetEffective|ListPrivate|"
     r"GetDefaultModel|AvailableModels|GetServerConfig|ReportProcessMetrics|"
-    r"GetDefaultModelNudge)",
+    r"GetDefaultModelNudge|ReportAiCodeChangeMetrics|ReportBug|"
+    r"CheckQueue|KeepAlive|Health)",
     re.IGNORECASE,
+)
+
+# Real Cursor explore tool-call shapes (NOT bare name mentions — those show up
+# in allow-lists and even in this repo's own source, which was disabling strip).
+_ACTIVE_EXPLORE_MARKERS: tuple[bytes, ...] = (
+    b'"toolName":"Grep","args"',
+    b'"toolName":"Glob","args"',
+    b'"toolName":"Read","args"',
+    b'"toolName":"SemanticSearch","args"',
+    b'"toolName":"ListDir","args"',
+    b'"toolName":"LS","args"',
+    b'"outerToolName":"Grep","toolIdentifier"',
+    b'"outerToolName":"Glob","toolIdentifier"',
+    b'"outerToolName":"Read","toolIdentifier"',
+    b'"outerToolName":"SemanticSearch","toolIdentifier"',
+    b'"effectiveToolName":"Grep"',
+    b'"effectiveToolName":"Glob"',
+    b'"effectiveToolName":"Read"',
+    b'"effectiveToolName":"SemanticSearch"',
 )
 
 
@@ -54,11 +74,19 @@ class _ProtoStats:
     truncated_fields: int = 0
     deduped_fields: int = 0
     hex_decoded: int = 0
+    reasoning_shrunk: int = 0
     notes: list[str] = field(default_factory=list)
     seen_hashes: set[str] = field(default_factory=set)
     # BidiAppend: gut file/code blobs; keep ids/metadata.
     aggressive: bool = False
     file_char_limit: int = 256
+    drop_reasoning: bool = True
+
+
+# Opaque model reasoning signatures — large, unused on later turns.
+_REASONING_SIGNATURE_RE = re.compile(
+    r'("signature"\s*:\s*")([^"]{64,})(")'
+)
 
 
 def path_is_sync(path: str) -> bool:
@@ -84,6 +112,17 @@ def path_should_strip_connect(path: str) -> bool:
     if not path or path_is_noise(path):
         return False
     return bool(CURSOR_STRIP_PATH_RE.search(path))
+
+
+def frame_has_explore_tools(data: bytes) -> bool:
+    """True if this frame has an active Grep/Glob/Read-style tool call.
+
+    Requires call-shaped JSON (toolName+args / outerToolName+toolIdentifier).
+    Bare name mentions in source or allow-lists must not match.
+    """
+    if not data or len(data) < 24:
+        return False
+    return any(m in data for m in _ACTIVE_EXPLORE_MARKERS)
 
 
 def _read_varint(buf: bytes, i: int) -> tuple[int, int]:
@@ -217,10 +256,30 @@ def _looks_like_code_or_file(text: str) -> bool:
     return False
 
 
+def _shrink_reasoning_blobs(text: str) -> tuple[str, int]:
+    """Strip opaque reasoning signatures (token waste, no quality benefit)."""
+    if "signature" not in text or len(text) < 80:
+        return text, 0
+    before = len(text)
+    text2, n = _REASONING_SIGNATURE_RE.subn(r"\1\3", text)
+    if not n:
+        return text, 0
+    return text2, max(0, before - len(text2))
+
+
 def _truncate_utf8_bytes(data: bytes, limit: int, stats: _ProtoStats) -> bytes:
     text = data.decode("utf-8", errors="ignore")
     if not text:
         return data
+
+    changed = False
+    # Free win: drop opaque reasoning signatures before hash/dedupe/stub.
+    if stats.drop_reasoning:
+        text2, saved = _shrink_reasoning_blobs(text)
+        if saved:
+            text = text2
+            changed = True
+            stats.reasoning_shrunk += 1
 
     # Exact duplicates across fields (Cursor often repeats rules / file dumps).
     if len(text) >= 256:
@@ -230,16 +289,17 @@ def _truncate_utf8_bytes(data: bytes, limit: int, stats: _ProtoStats) -> bytes:
             return f"[deduped {len(text)} chars]".encode("utf-8")
         stats.seen_hashes.add(digest)
 
-    changed = False
     text2, n = _dedupe_file_blocks(text)
     if n:
         text = text2
         changed = True
 
-    # BidiAppend file sync: replace bulky source/config with a short stub.
+    # Only stub bulky files when NOT in an explore/search turn (caller sets this).
+    # Stubbing Grep/Read payloads forces re-reads — worse speed + efficiency.
     if stats.aggressive and _looks_like_code_or_file(text):
         cap = max(64, int(stats.file_char_limit))
         if len(text) > cap:
+            stats.truncated_fields += 1
             stub = (
                 text[: max(0, cap - 48)].rstrip()
                 + f"\n…[bidi file omitted: {len(text)} chars]…"
@@ -261,11 +321,13 @@ def _truncate_utf8_bytes(data: bytes, limit: int, stats: _ProtoStats) -> bytes:
         if did:
             text = text2
             changed = True
+            stats.truncated_fields += 1
 
     # Hard truncate only above the configured cap (keep config very high for agent bodies).
     if len(text) > effective_limit:
         text = _truncate(text, effective_limit, "protobuf")
         changed = True
+        stats.truncated_fields += 1
 
     if changed:
         return text.encode("utf-8")
@@ -337,7 +399,6 @@ def _strip_protobuf(data: bytes, max_chars: int, stats: _ProtoStats, depth: int 
                     new_text = new_payload.decode("utf-8", errors="ignore")
                     stats.string_chars_out += len(new_text)
                     if new_payload != payload:
-                        stats.truncated_fields += 1
                         out.extend(_write_varint(len(new_payload)))
                         out.extend(new_payload)
                     else:
@@ -412,6 +473,7 @@ def _strip_connect_framed(
     stats = _ProtoStats(
         aggressive=aggressive,
         file_char_limit=int(getattr(cfg, "max_bidi_file_chars", 256) or 256),
+        drop_reasoning=bool(getattr(cfg, "drop_reasoning_parts", True)),
     )
     out = bytearray()
     i = 0
@@ -473,6 +535,7 @@ def _strip_connect_framed(
         stats.truncated_fields > 0
         or stats.deduped_fields > 0
         or stats.hex_decoded > 0
+        or stats.reasoning_shrunk > 0
         or stats.string_chars_out < stats.string_chars_in
     )
     if stats.truncated_fields:
@@ -481,6 +544,8 @@ def _strip_connect_framed(
         stats.notes.append(f"deduped {stats.deduped_fields} repeated strings")
     if stats.hex_decoded:
         stats.notes.append(f"rewrote {stats.hex_decoded} hex-nested blobs")
+    if stats.reasoning_shrunk:
+        stats.notes.append(f"shrunk {stats.reasoning_shrunk} reasoning signatures")
 
     chars_in = stats.string_chars_in or len(data)
     chars_out = stats.string_chars_out if changed else chars_in
@@ -499,6 +564,7 @@ def _strip_connect_framed(
             or stats.truncated_fields > 0
             or stats.deduped_fields > 0
             or stats.hex_decoded > 0
+            or stats.reasoning_shrunk > 0
         ),
         original_chars=chars_in,
         stripped_chars=chars_out,
@@ -513,12 +579,14 @@ def _strip_raw_protobuf(
     stats = _ProtoStats(
         aggressive=aggressive,
         file_char_limit=int(getattr(cfg, "max_bidi_file_chars", 256) or 256),
+        drop_reasoning=bool(getattr(cfg, "drop_reasoning_parts", True)),
     )
     stripped = _strip_protobuf(data, max_chars, stats)
     changed = (
         stats.truncated_fields > 0
         or stats.deduped_fields > 0
         or stats.hex_decoded > 0
+        or stats.reasoning_shrunk > 0
     )
     if changed:
         if stats.truncated_fields:
@@ -527,6 +595,8 @@ def _strip_raw_protobuf(
             stats.notes.append(f"deduped {stats.deduped_fields} repeated strings")
         if stats.hex_decoded:
             stats.notes.append(f"rewrote {stats.hex_decoded} hex-nested blobs")
+        if stats.reasoning_shrunk:
+            stats.notes.append(f"shrunk {stats.reasoning_shrunk} reasoning signatures")
     chars_in = stats.string_chars_in or len(data)
     chars_out = stats.string_chars_out if changed else chars_in
     new_data = data if cfg.dry_run or not changed else stripped
@@ -561,6 +631,28 @@ def try_strip_connect_bytes(
                 re.IGNORECASE,
             )
         )
+    # Active explore turns: still strip, but keep more of each file so the model
+    # doesn't re-Read. Bare tool-name mentions must not trigger this (see markers).
+    explore_light = False
+    explore_limit = int(getattr(cfg, "max_explore_file_chars", 48000) or 48000)
+    if (
+        aggressive
+        and bool(getattr(cfg, "preserve_explore_tools", True))
+        and frame_has_explore_tools(data)
+    ):
+        explore_light = True
+        # Raise the aggressive stub cap for this frame only.
+        cfg = replace(
+            cfg,
+            max_bidi_file_chars=max(int(cfg.max_bidi_file_chars), explore_limit),
+        )
+
+    def _finish(
+        new_data: bytes, result: StripResult | None
+    ) -> tuple[bytes, StripResult | None]:
+        if result is not None and explore_light:
+            result.notes = [*result.notes, "explore-keep-files"]
+        return new_data, result
 
     if "json" in ct and "connect" not in ct:
         return data, None
@@ -578,9 +670,11 @@ def try_strip_connect_bytes(
         if result is None:
             return data, None
         if not result.changed or cfg.dry_run:
-            return data, result
+            return _finish(data, result)
         result.notes = list(result.notes) + ["gunzipped body"]
-        return gzip.compress(new_inner, compresslevel=6, mtime=0), result
+        return _finish(
+            gzip.compress(new_inner, compresslevel=6, mtime=0), result
+        )
 
     # Important: content-type application/connect+proto does NOT always mean
     # Connect envelopes are present — Cursor often sends raw protobuf with that
@@ -588,7 +682,7 @@ def try_strip_connect_bytes(
     if _looks_connect_framed(data):
         new_data, result = _strip_connect_framed(data, cfg, aggressive=aggressive)
         if result.changed:
-            return new_data, result
+            return _finish(new_data, result)
 
     is_proto_ct = any(
         m in ct
@@ -603,7 +697,7 @@ def try_strip_connect_bytes(
     )
     if is_proto_ct or _looks_like_message(data):
         if data.lstrip()[:1] in (b"{", b"["):
-            return try_strip_bytes(data, cfg)
-        return _strip_raw_protobuf(data, cfg, aggressive=aggressive)
+            return _finish(*try_strip_bytes(data, cfg))
+        return _finish(*_strip_raw_protobuf(data, cfg, aggressive=aggressive))
 
     return data, None

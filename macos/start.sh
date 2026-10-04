@@ -16,7 +16,7 @@ else
 fi
 
 if [[ ! -d "$ROOT" || ! -f "$ROOT/config.yaml" ]]; then
-  osascript -e "display dialog \"Token Saver cannot find the project at:\n${ROOT:-?}\n\nRe-run macos/install-to-applications.sh from the repo.\" buttons {\"OK\"} with icon stop" >/dev/null 2>&1 || true
+  osascript -e "display dialog \"Token Saver cannot find the project at:\n${ROOT:-?}\n\nDouble-click Install to Applications (or install-to-applications.command) in the project folder.\" buttons {\"OK\"} with icon stop" >/dev/null 2>&1 || true
   exit 1
 fi
 
@@ -24,16 +24,33 @@ cd "$ROOT"
 
 DIRECT_URL="http://127.0.0.1:8081/"
 SETUP_URL="http://127.0.0.1:8081/?setup=1"
+OPEN_DASH="${RES}/open-dashboard.sh"
 
 _open_dashboard() {
+  local mode="${1:-focus}" # focus = reuse tab; setup = first-launch URL
   # Always prefer loopback:8081 — tokensaver.local needs the :80 alias service.
-  open "$SETUP_URL" 2>/dev/null || open "$DIRECT_URL" 2>/dev/null || true
-  osascript -e "display notification \"Dashboard · ${DIRECT_URL}\" with title \"Token Saver\"" >/dev/null 2>&1 || true
+  if [[ "$mode" == "focus" && -x "$OPEN_DASH" ]]; then
+    # Reuse matching tab; open-dashboard opens a new tab if none match.
+    TOKENSAVER_DASH_URL="$DIRECT_URL" bash "$OPEN_DASH" || true
+  elif [[ "$mode" == "setup" ]]; then
+    # Cold start: reuse tab if present, else open setup URL.
+    if [[ -x "$OPEN_DASH" ]]; then
+      TOKENSAVER_DASH_URL="$SETUP_URL" bash "$OPEN_DASH" || open "$SETUP_URL" 2>/dev/null || true
+    else
+      open "$SETUP_URL" 2>/dev/null || open "$DIRECT_URL" 2>/dev/null || true
+    fi
+  else
+    if [[ -x "$OPEN_DASH" ]]; then
+      TOKENSAVER_DASH_URL="$DIRECT_URL" bash "$OPEN_DASH" || true
+    else
+      open "$DIRECT_URL" 2>/dev/null || true
+    fi
+  fi
 }
 
-# If proxy/dashboard already healthy, just open the UI — do not restart/kill.
+# If proxy/dashboard already healthy, focus existing tab — do not restart/kill.
 if curl -fsS -m 1 "http://127.0.0.1:8081/api/stats" >/dev/null 2>&1; then
-  _open_dashboard
+  _open_dashboard focus
   exit 0
 fi
 
@@ -117,5 +134,6 @@ if [[ "$ok" -ne 1 ]]; then
   exit 1
 fi
 
-_open_dashboard
+# Cold start only — setup modal once; later Dock clicks reuse the open tab.
+_open_dashboard setup
 exit 0

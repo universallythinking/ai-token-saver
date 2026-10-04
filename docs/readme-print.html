@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Token Saver — Setup Guide</title>
+<style>
+  @page { size: letter; margin: 0.65in 0.7in; }
+  :root {
+    --ink: #14201c;
+    --muted: #4a5c55;
+    --line: #d5e0db;
+    --accent: #0f6b5c;
+    --accent-soft: #e6f3ef;
+    --code-bg: #f3f6f4;
+    --card: #f7faf8;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font: 10.5pt/1.45 "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  }
+  h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-weight: 600; }
+  h1 { font-size: 26pt; letter-spacing: -0.02em; margin: 0 0 0.15em; color: var(--accent); }
+  .tagline { font-size: 11.5pt; color: var(--muted); margin: 0 0 1.1em; max-width: 38em; }
+  h2 {
+    font-size: 14pt;
+    margin: 1.35em 0 0.45em;
+    padding-bottom: 0.2em;
+    border-bottom: 2px solid var(--accent);
+    color: var(--ink);
+    break-after: avoid;
+  }
+  h3 { font-size: 11.5pt; margin: 1em 0 0.35em; color: var(--accent); break-after: avoid; }
+  p { margin: 0.4em 0 0.7em; }
+  ul, ol { margin: 0.3em 0 0.8em; padding-left: 1.25em; }
+  li { margin: 0.2em 0; }
+  a { color: var(--accent); text-decoration: none; }
+  code, pre {
+    font-family: "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    font-size: 8.8pt;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    padding: 0.7em 0.85em;
+    border-radius: 4px;
+    overflow: hidden;
+    white-space: pre-wrap;
+    break-inside: avoid;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5em 0 1em;
+    font-size: 9.5pt;
+    break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 0.4em 0.55em;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+  .hero {
+    display: flex;
+    gap: 1.2em;
+    align-items: flex-start;
+    margin-bottom: 1.2em;
+    padding-bottom: 1em;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero-mark {
+    width: 64px;
+    height: 64px;
+    border-radius: 14px;
+    background: linear-gradient(145deg, #0f6b5c 0%, #1a3d36 100%);
+    color: #f4fbf8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font: 700 18pt/1 "Avenir Next", sans-serif;
+    flex-shrink: 0;
+  }
+  .meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65em;
+    margin: 0.8em 0 1.2em;
+  }
+  .meta .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.7em 0.85em;
+  }
+  .meta .card strong { display: block; color: var(--accent); font-size: 9pt; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.25em; }
+  .note {
+    background: var(--accent-soft);
+    border-radius: 6px;
+    padding: 0.65em 0.8em;
+    margin: 0.6em 0 1em;
+    break-inside: avoid;
+  }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; }
+  .cols > div { break-inside: avoid; }
+  .foot {
+    margin-top: 1.6em;
+    padding-top: 0.6em;
+    border-top: 1px solid var(--line);
+    font-size: 8.5pt;
+    color: var(--muted);
+  }
+  .kbd { font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-mark">TS</div>
+  <div>
+    <h1>Token Saver</h1>
+    <p class="tagline">Local proxy for Cursor and Claude Code. Strips bulky context before it hits the model APIs — fewer tokens, same workflow.</p>
+  </div>
+</div>
+
+<div class="meta">
+  <div class="card"><strong>Dashboard</strong>http://127.0.0.1:8081/</div>
+  <div class="card"><strong>Optional URL</strong>http://tokensaver.local/</div>
+  <div class="card"><strong>Proxy</strong>127.0.0.1:8080</div>
+  <div class="card"><strong>Ops board</strong>http://127.0.0.1:8081/v2</div>
+</div>
+
+<h2>Quick start</h2>
+<div class="cols">
+  <div>
+    <h3>macOS</h3>
+    <ol>
+      <li>Double-click <span class="kbd">start-mac.command</span> — installs deps and starts the proxy.</li>
+      <li>Double-click <span class="kbd">install-to-applications.command</span> (or <span class="kbd">Install to Applications</span>) — adds <strong>Token Saver</strong> to Applications with a Dock icon.</li>
+      <li>Open Token Saver → dashboard opens in your browser.</li>
+      <li>Click the Dock icon anytime to reopen the dashboard. <strong>Quit</strong> from the Dock stops the proxy.</li>
+    </ol>
+  </div>
+  <div>
+    <h3>Windows</h3>
+    <ol>
+      <li>Double-click <span class="kbd">start-windows.bat</span> — installs deps and starts the proxy.</li>
+      <li>Open <strong>http://127.0.0.1:8081/</strong> for the dashboard.</li>
+      <li>Prefer <strong>reverse</strong> mode for Claude Code and Cursor OpenAI BYOK (no CA install).</li>
+      <li>Use <code>.venv\Scripts\python.exe</code> for all commands — not a global Python.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="note">Always run aiproxy with the project venv Python: <code>.venv/bin/python</code> (macOS) or <code>.venv\Scripts\python.exe</code> (Windows).</div>
+
+<h2>1. Install (once)</h2>
+<table>
+  <tr><th>OS</th><th>Easiest</th><th>Manual</th></tr>
+  <tr>
+    <td>macOS</td>
+    <td><code>start-mac.command</code></td>
+    <td><code>python3 -m venv .venv</code> then pip install <code>-r requirements.txt</code> and <code>-e .</code></td>
+  </tr>
+  <tr>
+    <td>Windows</td>
+    <td><code>start-windows.bat</code></td>
+    <td><code>python -m venv .venv</code> then the same pip steps via <code>.venv\Scripts\python.exe</code></td>
+  </tr>
+</table>
+
+<pre># Snippets
+.venv/bin/python -m aiproxy --print-cursor-settings
+.venv/bin/python -m aiproxy --print-claude-settings
+
+# Windows
+.\.venv\Scripts\python.exe -m aiproxy --print-cursor-settings</pre>
+
+<h3>macOS Dock app</h3>
+<pre>./install-to-applications.command
+open -a "Token Saver"</pre>
+<ul>
+  <li>Launch / Dock click opens <code>http://127.0.0.1:8081/?setup=1</code></li>
+  <li>If already running, Dock click only opens the dashboard</li>
+  <li>Logs: <code>~/Library/Logs/TokenSaver/proxy.log</code></li>
+  <li>Re-run the installer after moving the repo</li>
+</ul>
+
+<h2>2. Modes</h2>
+<table>
+  <tr><th>Mode</th><th>Best for</th><th>CA?</th></tr>
+  <tr><td><strong>mitm</strong></td><td>Cursor default models (HTTPS intercept)</td><td>Yes</td></tr>
+  <tr><td><strong>reverse</strong></td><td>Cursor BYOK and Claude Code (JSON strip)</td><td>No</td></tr>
+  <tr><td><strong>openai</strong></td><td>Cursor OpenAI Base URL / BYOK only</td><td>No</td></tr>
+  <tr><td><strong>anthropic</strong></td><td>Claude Code via ANTHROPIC_BASE_URL</td><td>No</td></tr>
+</table>
+<p><strong>Pick:</strong> Cursor without BYOK → mitm. Claude / Cursor BYOK → reverse / anthropic / openai. On Windows, prefer reverse unless you need MITM.</p>
+<pre># Dry-run first (logs savings; does not change bodies)
+.venv/bin/python -m aiproxy --dry-run
+.\.venv\Scripts\python.exe -m aiproxy --dry-run</pre>
+
+<h2>3. Connect Cursor</h2>
+<h3>MITM — macOS</h3>
+<pre>.venv/bin/python -m aiproxy --mode mitm --dry-run
+
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain \
+  ~/.mitmproxy/mitmproxy-ca-cert.pem</pre>
+<p>Cursor <code>settings.json</code>:</p>
+<pre>{
+  "http.proxy": "http://127.0.0.1:8080",
+  "http.proxySupport": "override",
+  "http.proxyStrictSSL": false,
+  "cursor.general.disableHttp2": true
+}</pre>
+<pre>export NODE_EXTRA_CA_CERTS="$HOME/.mitmproxy/mitmproxy-ca-cert.pem"
+open -a Cursor   # after Cmd+Q quit</pre>
+
+<h3>OpenAI BYOK — Mac or Windows (recommended on Windows)</h3>
+<pre>.venv/bin/python -m aiproxy --mode openai --dry-run
+# Cursor → Settings → Models → OpenAI Base URL:
+# http://127.0.0.1:8080/v1
+# No CA. Leave http.proxy unset.</pre>
+
+<h3>Windows MITM (optional)</h3>
+<ol>
+  <li>Start with <code>--mode mitm</code>; trust <code>%USERPROFILE%\.mitmproxy\mitmproxy-ca-cert.cer</code> in Trusted Root.</li>
+  <li>Same Cursor <code>http.proxy</code> settings as above.</li>
+  <li>Relaunch Cursor with <code>NODE_EXTRA_CA_CERTS</code> set to the <code>.pem</code> path.</li>
+</ol>
+
+<h2>4. Connect Claude Code</h2>
+<pre># Terminal 1
+.venv/bin/python -m aiproxy --mode anthropic --dry-run
+
+# Terminal 2 (macOS / Linux)
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8080"
+claude
+
+# Terminal 2 (Windows PowerShell)
+$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:8080"
+claude</pre>
+<p>Persist in <code>~/.claude/settings.json</code> (Windows: <code>%USERPROFILE%\.claude\settings.json</code>):</p>
+<pre>{
+  "env": { "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080" }
+}</pre>
+<p>Not covered: claude.ai in the browser, Claude Desktop.</p>
+
+<h2>5. Memorable URL (optional)</h2>
+<pre># macOS
+cd /path/to/ai-token-saver
+sudo "$(pwd)/.venv/bin/python" -m aiproxy --install-hostname
+
+# Windows (Admin PowerShell)
+cd C:\path\to\ai-token-saver
+& "$(Get-Location)\.venv\Scripts\python.exe" -m aiproxy --install-hostname</pre>
+<p>Adds hosts entry for <code>tokensaver.local</code> and a small port-80 forwarder to the dashboard.</p>
+
+<h2>6. Verify &amp; strip rules</h2>
+<table>
+  <tr><th>Check</th><th>Expected</th></tr>
+  <tr><td>Dashboard</td><td>http://127.0.0.1:8081/ loads</td></tr>
+  <tr><td>Chat</td><td>Requested counters rise</td></tr>
+  <tr><td>Strip</td><td>Saved &gt; 0 (or dry-run log notes)</td></tr>
+  <tr><td>logs/</td><td>*.meta.json when bodies change</td></tr>
+</table>
+<p>Rollout: dry-run → tune <code>config.yaml</code> <code>strip:</code> → restart without <code>--dry-run</code>.</p>
+<table>
+  <tr><th>Rule</th><th>Idea</th></tr>
+  <tr><td>max_messages</td><td>Keep last N turns (+ system)</td></tr>
+  <tr><td>max_chars_*</td><td>Cap huge file dumps</td></tr>
+  <tr><td>dedupe_file_blocks</td><td>Collapse duplicate path/code blocks</td></tr>
+  <tr><td>max_tool_result_chars</td><td>Truncate old tool output</td></tr>
+  <tr><td>drop_reasoning_parts</td><td>Drop thinking blobs</td></tr>
+  <tr><td>compress_system</td><td>Shrink oversized system prompts</td></tr>
+</table>
+
+<h2>7. Ports &amp; files</h2>
+<table>
+  <tr><th>What</th><th>Where</th></tr>
+  <tr><td>Proxy</td><td>127.0.0.1:8080</td></tr>
+  <tr><td>Dashboard</td><td>127.0.0.1:8081</td></tr>
+  <tr><td>Config</td><td>config.yaml</td></tr>
+  <tr><td>Stats</td><td>logs/stats.json</td></tr>
+  <tr><td>mitmproxy CA</td><td>~/.mitmproxy/… (Windows: %USERPROFILE%\.mitmproxy\)</td></tr>
+  <tr><td>macOS app logs</td><td>~/Library/Logs/TokenSaver/proxy.log</td></tr>
+</table>
+
+<div class="foot">
+  Token Saver (aiproxy) · Universally Thinking · Companion docs: README.md · README-Windows.md
+</div>
+
+</body>
+</html>

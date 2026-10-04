@@ -18,6 +18,11 @@ class StripConfig:
     max_tool_result_chars: int = 2000
     # BidiAppend hex-nested file bodies — stub down to this many chars
     max_bidi_file_chars: int = 256
+    # On active Grep/Glob/Read turns, keep more file bytes (avoid re-read loops)
+    # but still stub oversized dumps. Detection requires real tool-call shape —
+    # not bare name mentions (those appear in source / allow-lists).
+    preserve_explore_tools: bool = True
+    max_explore_file_chars: int = 48000
     drop_keys: list[str] = field(default_factory=list)
     compress_system: bool = True
     max_system_chars: int = 12000
@@ -102,6 +107,12 @@ class Config:
                 dedupe_file_blocks=bool(strip_raw.get("dedupe_file_blocks", True)),
                 max_tool_result_chars=int(strip_raw.get("max_tool_result_chars", 2000)),
                 max_bidi_file_chars=int(strip_raw.get("max_bidi_file_chars", 256)),
+                preserve_explore_tools=bool(
+                    strip_raw.get("preserve_explore_tools", True)
+                ),
+                max_explore_file_chars=int(
+                    strip_raw.get("max_explore_file_chars", 48000)
+                ),
                 drop_keys=list(strip_raw.get("drop_keys") or []),
                 compress_system=bool(strip_raw.get("compress_system", True)),
                 max_system_chars=int(strip_raw.get("max_system_chars", 12000)),

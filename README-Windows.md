@@ -1,12 +1,12 @@
-# aiproxy on Windows
+# Token Saver on Windows
 
 Local proxy between **Cursor** / **Claude Code** and the model APIs. Strips bulky JSON context to save tokens, then forwards upstream.
 
-**Dashboard:** [http://127.0.0.1:8081/](http://127.0.0.1:8081/)
+**Dashboard:** [http://127.0.0.1:8081/](http://127.0.0.1:8081/) · **Printable guide (Mac + Windows):** [README.pdf](README.pdf)
 
 > **Python note:** Use the **Windows** Python launcher or `python.exe` to create the venv. After that, always run aiproxy with **`.venv\Scripts\python.exe`** (not a random global `python`) so deps resolve.
 >
-> macOS / Linux instructions: [README.md](README.md)
+> Cross-platform overview: [README.md](README.md). Double-click `start-windows.bat` for the guided install.
 
 ---
 
