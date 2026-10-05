@@ -14,17 +14,26 @@ def _project_root() -> Path:
 
 def _venv_python() -> Path:
     """Preferred interpreter for running aiproxy: project .venv if present."""
-    candidate = _project_root() / ".venv" / "bin" / "python"
+    root = _project_root()
+    if sys.platform == "win32":
+        candidate = root / ".venv" / "Scripts" / "python.exe"
+    else:
+        candidate = root / ".venv" / "bin" / "python"
     if candidate.exists():
         return candidate
     return Path(sys.executable)
 
 
 def _bootstrap_python() -> str:
-    """Interpreter used to *create* the venv (python3 on macOS/Linux)."""
-    # Prefer python3 when available — bare `python` is often missing on macOS.
+    """Interpreter used to *create* the venv."""
     from shutil import which
 
+    if sys.platform == "win32":
+        if which("py"):
+            return "py -3"
+        if which("python"):
+            return "python"
+        return "py -3"
     if which("python3"):
         return "python3"
     if which("python"):
@@ -34,7 +43,18 @@ def _bootstrap_python() -> str:
 
 def _trust_ca_snippet(ca: Path) -> str:
     cer = ca.with_suffix(".cer")
-    return f"""# Trust mitmproxy CA (macOS, once).
+    if sys.platform == "win32":
+        return f"""# Trust mitmproxy CA (Windows, once).
+# Open the .cer (or .pem) and Install Certificate → Local Machine
+# → Trusted Root Certification Authorities:
+start "{cer}"
+#   (or: start "{ca}")
+#
+# Also set NODE_EXTRA_CA_CERTS whenever you launch Cursor:
+#   $env:NODE_EXTRA_CA_CERTS = "{ca}"
+"""
+    if sys.platform == "darwin":
+        return f"""# Trust mitmproxy CA (macOS, once).
 # Prefer the CLI — Keychain UI often hides the cert.
 #
 # Option 1 (recommended) — trust as a system root (asks for Mac password):
@@ -52,12 +72,28 @@ security find-certificate -c mitmproxy -a
 # Also set NODE_EXTRA_CA_CERTS whenever you launch Cursor/Claude (Node path):
 #   export NODE_EXTRA_CA_CERTS="{ca}"
 """
+    return f"""# Trust mitmproxy CA for your OS (once), then:
+#   export NODE_EXTRA_CA_CERTS="{ca}"
+# CA file: {ca}
+"""
 
 
 def _install_snippet() -> str:
     root = _project_root()
     py_boot = _bootstrap_python()
     py = _venv_python()
+    if sys.platform == "win32":
+        return f"""# === Install deps (once) ===
+cd "{root}"
+{py_boot} -m venv .venv
+.\\.venv\\Scripts\\python.exe -m pip install --upgrade pip
+.\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt
+.\\.venv\\Scripts\\python.exe -m pip install -e .
+
+# Always run aiproxy with the venv interpreter:
+#   {py} -m aiproxy ...
+# Or double-click start-windows.bat
+"""
     return f"""# === Install deps (once) ===
 # Use python3 to create the venv (not bare `python` — often missing on macOS).
 cd "{root}"
@@ -79,6 +115,22 @@ def _cursor_settings_snippet(config) -> str:  # noqa: ANN001
     dash = dashboard_origin(config)
     ca = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
     py = _venv_python()
+    if sys.platform == "win32":
+        cursor = (
+            Path(os.environ.get("LOCALAPPDATA", ""))
+            / "Programs"
+            / "cursor"
+            / "Cursor.exe"
+        )
+        launch = (
+            f'$env:NODE_EXTRA_CA_CERTS = "{ca}"\n'
+            f'Start-Process "{cursor}"'
+        )
+        settings_path = r"%APPDATA%\Cursor\User\settings.json"
+    else:
+        launch = f'export NODE_EXTRA_CA_CERTS="{ca}"\nopen -a Cursor'
+        settings_path = "~/Library/Application Support/Cursor/User/settings.json"
+
     return f"""{_install_snippet()}
 # === Cursor + aiproxy (MITM — default Cursor models) ===
 # SSE/Connect responses are streamed (not buffered) so replies work.
@@ -86,13 +138,14 @@ def _cursor_settings_snippet(config) -> str:  # noqa: ANN001
 #
 # 1) Start:
 {py} -m aiproxy --mode mitm --dry-run
+#    Or: start-windows.bat / Token Saver.app (uses saved prefs)
 
 {_trust_ca_snippet(ca)}
 # 3) Launch Cursor with:
-export NODE_EXTRA_CA_CERTS="{ca}"
-open -a Cursor
+{launch}
 
-# 4) Cursor → Settings → Open User Settings (JSON):
+# 4) Cursor → Settings → Open User Settings (JSON)
+#    File: {settings_path}
 {{
   "http.proxy": "{proxy}",
   "http.proxySupport": "override",
@@ -100,7 +153,7 @@ open -a Cursor
   "cursor.general.disableHttp2": true
 }}
 
-# 5) Fully quit Cursor (Cmd+Q) and relaunch with NODE_EXTRA_CA_CERTS set.
+# 5) Fully quit Cursor and relaunch with NODE_EXTRA_CA_CERTS set.
 # Dashboard: {dash}/
 #
 # --- Alternative: OpenAI Base URL (BYOK only) ---
@@ -116,6 +169,19 @@ def _claude_settings_snippet(config) -> str:  # noqa: ANN001
     dash = dashboard_origin(config)
     ca = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
     py = _venv_python()
+    if sys.platform == "win32":
+        env_set = f'$env:ANTHROPIC_BASE_URL = "{proxy}"'
+        proxy_env = (
+            f'$env:HTTPS_PROXY = "{proxy}"\n'
+            f'$env:HTTP_PROXY = "{proxy}"\n'
+            f'$env:NODE_EXTRA_CA_CERTS = "{ca}"'
+        )
+    else:
+        env_set = f'export ANTHROPIC_BASE_URL="{proxy}"'
+        proxy_env = (
+            f'export HTTPS_PROXY="{proxy}" HTTP_PROXY="{proxy}"\n'
+            f'export NODE_EXTRA_CA_CERTS="{ca}"'
+        )
     return f"""{_install_snippet()}
 # === Claude Code + aiproxy (recommended: ANTHROPIC_BASE_URL) ===
 # Strips JSON. No CA cert.
@@ -125,7 +191,7 @@ def _claude_settings_snippet(config) -> str:  # noqa: ANN001
 #    (or both apps: {py} -m aiproxy --mode reverse)
 #
 # 2) Point Claude at it (keep your existing API key / login):
-export ANTHROPIC_BASE_URL="{proxy}"
+{env_set}
 claude
 # Check: /status  (base URL should be {proxy})
 #
@@ -141,9 +207,8 @@ claude
 # --- Alternative: MITM via HTTPS_PROXY ---
 # {py} -m aiproxy --mode mitm --dry-run
 {_trust_ca_snippet(ca)}
-# export HTTPS_PROXY="{proxy}" HTTP_PROXY="{proxy}"
-# export NODE_EXTRA_CA_CERTS="{ca}"
-# claude
+{proxy_env}
+claude
 """
 
 

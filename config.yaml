@@ -61,16 +61,17 @@ block_host_suffixes:
 
 strip:
   # Keep only the last N messages (messages[] or input[]). System/developer kept separately.
-  max_messages: 24
+  # Tighter = less cache/input on long agent chats. Raise if the model "forgets" earlier turns.
+  max_messages: 16
 
   # Hard cap on any single message/content part (chars). Older turns get stricter caps.
-  # For Cursor Connect/protobuf: prefer dedupe over hard truncating unique context —
-  # aggressive caps caused upstream 400 "content missing".
-  max_chars_recent: 200000
-  max_chars_old: 200000
+  # For Cursor Connect/protobuf: prefer dedupe over gutting — very low caps caused
+  # upstream 400 "content missing". These are mid-aggressive (was 200k / 200k).
+  max_chars_recent: 48000
+  max_chars_old: 12000
 
   # How many trailing turns count as "recent"
-  recent_turn_window: 6
+  recent_turn_window: 4
 
   # Drop assistant thinking / reasoning blocks when present as separate parts
   drop_reasoning_parts: true
@@ -78,12 +79,12 @@ strip:
   # Collapse duplicate fenced code / path-labeled file dumps to one copy
   dedupe_file_blocks: true
 
-  # Truncate old tool/function results aggressively
-  max_tool_result_chars: 2000
+  # Truncate old tool/function results aggressively (biggest easy win on agent loops)
+  max_tool_result_chars: 1000
 
   # Stub embedded file/code blobs inside agent WebSocket / RunSSE prompts.
   # (BidiAppend file-sync is never rewritten — that breaks replies.)
-  max_bidi_file_chars: 2000
+  max_bidi_file_chars: 800
 
   # Remove noisy top-level keys Cursor / clients sometimes attach
   drop_keys:
@@ -96,7 +97,7 @@ strip:
 
   # Optional: strip long repeated "Rules" / "Always applied" blobs from system text
   compress_system: true
-  max_system_chars: 12000
+  max_system_chars: 8000
 
   # Dry-run: log savings but forward the original body.
   # Live rewrite is on; a safety gate skips applies that would drop >50% of chars.

@@ -14,9 +14,17 @@ Local proxy between **Cursor** / **Claude Code** and the model APIs. Strips bulk
 
 **Easiest:** double-click [`start-windows.bat`](start-windows.bat)
 
-It opens a console, installs deps if needed, asks **Cursor / Claude / Both**, dry-run yes/no, then starts the proxy.
+It opens a console, installs deps if needed, asks **Cursor / Claude / Both / Quick start** (same as macOS), dry-run yes/no, **saves prefs** to `.aiproxy_runtime.env`, starts the proxy in the background, and opens the dashboard with the setup wizard (`?setup=1`) unless you chose **Don’t show this again**.
 
-Open the dashboard and use the in-browser **setup wizard** (same as macOS). After you save settings, **Don’t show this again** skips the wizard on later visits (`SKIP_SETUP=1` in `.aiproxy_runtime.env`). The dashboard **Setup** button always brings it back.
+| Action | Command |
+|--------|---------|
+| Start (background) | `powershell -ExecutionPolicy Bypass -File .\windows\start.ps1` |
+| Stop | `powershell -ExecutionPolicy Bypass -File .\windows\stop.ps1` |
+| Guided install | `start-windows.bat` |
+
+**Apply & restart** in the browser wizard works on Windows the same as on the Mac Dock app (uses `windows\stop.ps1` + `windows\start.ps1`).
+
+Open the dashboard anytime: [http://127.0.0.1:8081/](http://127.0.0.1:8081/) · **Setup** button always brings the wizard back.
 
 Or manually in **PowerShell**:
 
@@ -64,17 +72,30 @@ Print ready-to-copy snippets:
 
 ## 2. Pick a mode
 
-| Mode | Command | Best for | CA cert needed? |
-|------|---------|----------|-----------------|
-| **reverse** (default) | `.\.venv\Scripts\python.exe -m aiproxy` | Cursor BYOK **and** Claude Code (JSON strip) | No |
-| **openai** | `...\python.exe -m aiproxy --mode openai` | Cursor OpenAI Base URL / BYOK only | No |
-| **anthropic** | `...\python.exe -m aiproxy --mode anthropic` | Claude Code via `ANTHROPIC_BASE_URL` only | No |
-| **mitm** | `...\python.exe -m aiproxy --mode mitm` | Inspect all HTTPS (Cursor agent = protobuf — little stripping) | Yes |
+The guided launcher and setup wizard use the **same choices as macOS**:
+
+| Choice | Mode started | Best for | CA cert? |
+|--------|--------------|----------|----------|
+| **1 Cursor** | `mitm` | Cursor default models (Dock/Windows parity) | Yes |
+| **2 Claude Code** | `anthropic` | Claude via `ANTHROPIC_BASE_URL` | No |
+| **3 Both** | `mitm` | Cursor + Claude (`HTTPS_PROXY`) | Yes |
+| **4 Quick start** | saved | Replay last saved prefs | — |
+
+Advanced CLI modes (not in the wizard menu):
+
+| Mode | Command | Notes |
+|------|---------|-------|
+| **openai** | `.\.venv\Scripts\python.exe -m aiproxy --mode openai` | Cursor OpenAI Base URL / BYOK |
+| **reverse** | `.\.venv\Scripts\python.exe -m aiproxy --mode reverse` | BYOK + Claude JSON bridge |
+| **mitm** | `.\.venv\Scripts\python.exe -m aiproxy --mode mitm` | Full HTTPS intercept (same as choice 1) |
+
+`config.yaml` defaults to `mode: mitm` (matches the Cursor launcher path). Pass `--mode` to override.
 
 **Recommendation**
 
-- Claude Code and/or Cursor with your own OpenAI key → **reverse** (default)
-- Avoid **mitm** unless you need raw intercept; default Cursor models won’t strip well
+- Match macOS / Dock: use **start-windows.bat** → Cursor or Claude or Both
+- BYOK-only Cursor → `--mode openai` or `--mode reverse` from CLI
+- Avoid raw mitm only if you do not want to trust the CA; Claude-only needs no CA
 
 Dry-run first (logs savings, does **not** change bodies):
 

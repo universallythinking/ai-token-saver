@@ -34,8 +34,8 @@ Local proxy between **Cursor** / **Claude Code** and the model APIs. It strips b
 
 ### Windows
 
-1. Double-click **`start-windows.bat`** — installs deps, asks Cursor vs Claude, starts the proxy.
-2. Open [http://127.0.0.1:8081/](http://127.0.0.1:8081/) for the dashboard (same setup wizard as macOS).
+1. Double-click **`start-windows.bat`** — installs deps, asks Cursor / Claude / Both / Quick start (same as macOS), saves prefs, starts the proxy in the background, opens the dashboard.
+2. Stop with `powershell -ExecutionPolicy Bypass -File .\windows\stop.ps1`.
 3. Full Windows notes (CA trust, PowerShell paths): [README-Windows.md](README-Windows.md)
 
 > Always run the proxy with the **venv Python** (`.venv/bin/python` on Mac, `.venv\Scripts\python.exe` on Windows) — not system `python`.
@@ -102,7 +102,7 @@ Allow **Token Saver → Chrome/Safari** under System Settings → Privacy & Secu
 
 - Cursor without BYOK → **mitm**
 - Claude Code / Cursor BYOK → **reverse** / **anthropic** / **openai**
-- On Windows, prefer **reverse** (default) unless you need raw MITM
+- On Windows, the guided launcher matches macOS (Cursor → mitm, Claude → anthropic). For BYOK-only Cursor, use `--mode openai` / `--mode reverse` — see [README-Windows.md](README-Windows.md).
 
 Start dry-run first (logs savings, does **not** change bodies):
 
@@ -154,7 +154,7 @@ open -a Cursor
 ```
 
 Cursor → Settings → Models → OpenAI Base URL: `http://127.0.0.1:8080/v1`  
-No CA. Leave `http.proxy` unset. On Windows this is the recommended Cursor path — see [README-Windows.md](README-Windows.md).
+No CA. Leave `http.proxy` unset. Optional path when using your own OpenAI key — see [README-Windows.md](README-Windows.md).
 
 ---
 
@@ -259,7 +259,7 @@ Configured in `config.yaml` under `strip:`
 | mitmproxy CA | `~/.mitmproxy/mitmproxy-ca-cert.pem` (Windows: `%USERPROFILE%\.mitmproxy\`) |
 | macOS app logs | `~/Library/Logs/TokenSaver/proxy.log` |
 
-`SKIP_SETUP=1` in `.aiproxy_runtime.env` means the Dock app opens the dashboard without the setup wizard (set via **Don’t show this again**). Use the dashboard **Setup** button to change that later.
+`SKIP_SETUP=1` in `.aiproxy_runtime.env` means the launcher opens the dashboard without the setup wizard (set via **Don’t show this again**). Use the dashboard **Setup** button to change that later. Works on macOS Dock and Windows `windows\start.ps1`.
 
 ---
 

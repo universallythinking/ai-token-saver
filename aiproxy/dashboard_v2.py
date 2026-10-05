@@ -619,7 +619,7 @@ HTML_HEAD = r"""<!DOCTYPE html>
       <div class="feat">
         <label>Lifetime requests</label>
         <div class="v cool" id="life-volume">0</div>
-        <div class="sub" id="life-volume-sub">0 tok in · 0 stripped</div>
+        <div class="sub" id="life-volume-sub">0 tok requested · 0 stripped</div>
       </div>
     </section>
 
@@ -636,12 +636,12 @@ HTML_HEAD = r"""<!DOCTYPE html>
         <div class="sub" id="m-save-pct-sub">0% chars removed</div>
       </div>
       <div class="feat">
-        <label>Actual $/hr</label>
+        <label>Actual $ saved/hr</label>
         <div class="v cool" id="usd-actual">$0/hr</div>
         <div class="sub" id="usd-actual-sub">per-model rates</div>
       </div>
       <div class="feat">
-        <label>Max $/hr</label>
+        <label>Max $ saved/hr</label>
         <div class="v hot" id="usd-max">$0/hr</div>
         <div class="sub" id="usd-max-sub">most expensive model</div>
       </div>
@@ -654,12 +654,12 @@ HTML_HEAD = r"""<!DOCTYPE html>
         <div class="sub" id="char-pct">0% removed</div>
       </div>
       <div class="stat">
-        <label>Requested</label>
+        <label>Tokens requested</label>
         <div class="v in" id="tokens-in">0 tok</div>
         <div class="sub" id="chars-in">0 chars · 0 req</div>
       </div>
       <div class="stat mint">
-        <label>Forwarded</label>
+        <label>Tokens forwarded</label>
         <div class="v out" id="tokens-out">0 tok</div>
         <div class="sub" id="chars-out">0 chars · 0 stripped</div>
       </div>
@@ -679,14 +679,14 @@ HTML_HEAD = r"""<!DOCTYPE html>
         <div class="sub" id="m-usd-total-max-sub">$0/req</div>
       </div>
       <div class="stat">
-        <label>Avg tokens in</label>
+        <label>Avg tokens requested</label>
         <div class="v in" id="m-avg-tok-in">0</div>
         <div class="sub" id="m-avg-tok-in-sub">0 forwarded avg</div>
       </div>
       <div class="stat mint">
         <label>Avg tokens saved</label>
         <div class="v saved" id="m-avg-tok-saved">0</div>
-        <div class="sub" id="m-avg-tok-saved-sub">0 chars/req</div>
+        <div class="sub" id="m-avg-tok-saved-sub">0 chars saved/req</div>
       </div>
       <div class="stat warm">
         <label>Request rate</label>
@@ -719,22 +719,22 @@ HTML_HEAD = r"""<!DOCTYPE html>
         <div class="sub" id="m-blocked-sub">0 unchanged</div>
       </div>
       <div class="stat mint">
-        <label>Lifetime tokens</label>
+        <label>Lifetime tokens saved</label>
         <div class="v saved" id="m-life-saved">0</div>
         <div class="sub" id="m-life-saved-sub">0 lifetime req</div>
       </div>
       <div class="stat">
-        <label>Lifetime $ actual</label>
+        <label>Lifetime $ saved (actual)</label>
         <div class="v in" id="m-life-usd-actual">$0</div>
         <div class="sub" id="m-life-usd-actual-sub">all-time total</div>
       </div>
       <div class="stat alt">
-        <label>Lifetime $ max</label>
+        <label>Lifetime $ saved (max)</label>
         <div class="v pct" id="m-life-usd-max">$0</div>
         <div class="sub" id="m-life-usd-max-sub">all-time total</div>
       </div>
       <div class="stat mint">
-        <label>Lifetime chars</label>
+        <label>Lifetime chars saved</label>
         <div class="v saved" id="m-life-chars">0</div>
         <div class="sub" id="m-life-chars-sub">0% removed</div>
       </div>
@@ -788,7 +788,7 @@ HTML_HEAD = r"""<!DOCTYPE html>
         <div class="panel">
           <div class="head">
             <h2>Models used</h2>
-            <span class="hint" id="models-hint">by tokens in</span>
+            <span class="hint" id="models-hint">by tokens requested</span>
           </div>
           <div class="pie-wrap">
             <div id="pie-models" style="height:140px"></div>

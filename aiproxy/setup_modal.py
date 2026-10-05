@@ -292,25 +292,32 @@ SETUP_MODAL_ASSETS = r"""
     } else if (step === 2) {
       stepEl.textContent = "Step 3 of 4";
       const mitm = !(app === 2 || (quickStart && payload && payload.prefs && payload.prefs.mode === "anthropic"));
+      const hints = (payload && payload.hints) || {};
       if (!mitm) {
         ledeEl.textContent = "Certificate";
-        bodyEl.innerHTML = '<div class="ts-note">Claude Code reverse-proxy mode needs no mitmproxy CA trust.\n\nPoint Claude at:\n  export ANTHROPIC_BASE_URL="' +
-          ((payload && payload.proxy_url) || "http://127.0.0.1:8080") + '"\n  claude</div>';
+        const claude = hints.claude_env ||
+          ('export ANTHROPIC_BASE_URL="' + ((payload && payload.proxy_url) || "http://127.0.0.1:8080") + '"\nclaude');
+        bodyEl.innerHTML = '<div class="ts-note">Claude Code reverse-proxy mode needs no mitmproxy CA trust.\n\nPoint Claude at:\n  ' +
+          claude.replace(/\n/g, "\n  ") + "</div>";
       } else {
         ledeEl.textContent = "Trust mitmproxy CA (once) for Cursor HTTPS intercept";
-        bodyEl.innerHTML = '<div class="ts-note">If replies fail with certificate errors, trust the CA once in Terminal:\n\n  sudo security add-trusted-cert -d -r trustRoot \\\n    -k /Library/Keychains/System.keychain \\\n    "' + ((payload && payload.ca_path) || "~/.mitmproxy/mitmproxy-ca-cert.pem") + '"\n\nThen fully quit Cursor (Cmd+Q) and relaunch with:\n  export NODE_EXTRA_CA_CERTS="' +
-          ((payload && payload.ca_path) || "~/.mitmproxy/mitmproxy-ca-cert.pem") + '"\n  open -a Cursor</div>';
+        const caNote = hints.mitm_ca ||
+          ('If replies fail with certificate errors, trust the CA once.\nCA: ' +
+            ((payload && payload.ca_path) || "~/.mitmproxy/mitmproxy-ca-cert.pem"));
+        bodyEl.innerHTML = '<div class="ts-note">' + caNote + "</div>";
       }
       nextBtn.textContent = "Continue";
     } else {
       stepEl.textContent = "Step 4 of 4";
       ledeEl.textContent = "Save these settings for Quick start next time?";
+      const restartNote = ((payload && payload.hints && payload.hints.restart_note) ||
+        "Apply will write launcher prefs and restart the proxy.");
       bodyEl.innerHTML =
         '<div class="ts-yn">' +
           '<button type="button" data-v="1" class="' + (savePrefs ? "active" : "") + '">Yes — save</button>' +
           '<button type="button" data-v="0" class="' + (!savePrefs ? "active" : "") + '">No — just this session</button>' +
         '</div>' +
-        '<div class="ts-note">Apply will write launcher prefs and restart the proxy (Dock app stays open).</div>';
+        '<div class="ts-note">' + restartNote + "</div>";
       bodyEl.querySelectorAll(".ts-yn button").forEach((b) => {
         b.onclick = () => { savePrefs = b.dataset.v === "1"; render(); };
       });

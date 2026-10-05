@@ -1,9 +1,13 @@
-"""Launcher / dashboard runtime preferences (.aiproxy_runtime.env)."""
+"""Launcher / dashboard runtime preferences (.aiproxy_runtime.env).
+
+Shared by macOS Dock app, Windows start scripts, and the in-browser setup wizard.
+"""
 
 from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -34,6 +38,14 @@ APP_CHOICES = {
         "mode": None,  # resolved from saved APP/MODE
     },
 }
+
+
+def platform_name() -> str:
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "darwin":
+        return "darwin"
+    return "linux"
 
 
 def project_root(config: Any | None = None) -> Path:
@@ -193,7 +205,7 @@ def save_prefs(
         persist_quick_start or bool(existing_saved.get("exists"))
     )
 
-    # Session file always — so Mac start.sh / restart pick up this run.
+    # Session file always — so start scripts / restart pick up this run.
     _write_env(
         session_path(config),
         app=app,
@@ -223,16 +235,71 @@ def save_prefs(
     return load_prefs(config)
 
 
+def _ca_paths() -> tuple[Path, Path]:
+    pem = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
+    return pem, pem.with_suffix(".cer")
+
+
+def _cursor_launch_hint(plat: str, ca: Path) -> str:
+    if plat == "windows":
+        cursor = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "cursor" / "Cursor.exe"
+        return (
+            f'$env:NODE_EXTRA_CA_CERTS = "{ca}"\n'
+            f'Start-Process "{cursor}"'
+        )
+    if plat == "darwin":
+        return f'export NODE_EXTRA_CA_CERTS="{ca}"\nopen -a Cursor'
+    return f'export NODE_EXTRA_CA_CERTS="{ca}"\ncursor  # or your Cursor binary'
+
+
+def _claude_env_hint(plat: str, proxy_url: str) -> str:
+    if plat == "windows":
+        return f'$env:ANTHROPIC_BASE_URL = "{proxy_url}"\nclaude'
+    return f'export ANTHROPIC_BASE_URL="{proxy_url}"\nclaude'
+
+
+def _mitm_ca_hint(plat: str, ca: Path, cer: Path) -> str:
+    if plat == "windows":
+        return (
+            "If replies fail with certificate errors, trust the mitmproxy CA once:\n\n"
+            f"  # Open the .cer (or .pem) and Install Certificate → Local Machine\n"
+            f"  # → Trusted Root Certification Authorities\n"
+            f"  start \"{cer if cer.exists() else ca}\"\n\n"
+            "Then fully quit Cursor and relaunch from PowerShell with:\n\n"
+            f"  {_cursor_launch_hint(plat, ca)}"
+        )
+    if plat == "darwin":
+        return (
+            "If replies fail with certificate errors, trust the CA once in Terminal:\n\n"
+            "  sudo security add-trusted-cert -d -r trustRoot \\\n"
+            "    -k /Library/Keychains/System.keychain \\\n"
+            f'    "{ca}"\n\n'
+            "Then fully quit Cursor (Cmd+Q) and relaunch with:\n\n"
+            f"  {_cursor_launch_hint(plat, ca)}"
+        )
+    return (
+        "If replies fail with certificate errors, trust the mitmproxy CA for your OS, then:\n\n"
+        f"  {_cursor_launch_hint(plat, ca)}"
+    )
+
+
 def setup_payload(config: Any | None = None) -> dict[str, Any]:
     prefs = load_prefs(config)
     saved = load_saved_prefs(config)
     can_skip_setup = bool(saved.get("exists"))
     skip_setup = bool(saved.get("skip_setup")) and can_skip_setup
+    plat = platform_name()
+    ca, cer = _ca_paths()
+    proxy_url = (
+        f"http://{getattr(config, 'listen_host', '127.0.0.1')}:"
+        f"{getattr(config, 'listen_port', 8080)}"
+    )
     return {
         "prefs": prefs,
         "saved": saved,
         "can_skip_setup": can_skip_setup,
         "skip_setup": skip_setup,
+        "platform": plat,
         "choices": [
             {
                 "id": i,
@@ -243,14 +310,72 @@ def setup_payload(config: Any | None = None) -> dict[str, Any]:
             }
             for i in (1, 2, 3, 4)
         ],
-        "ca_path": str(Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"),
-        "proxy_url": f"http://{getattr(config, 'listen_host', '127.0.0.1')}:{getattr(config, 'listen_port', 8080)}",
+        "ca_path": str(ca),
+        "ca_cer_path": str(cer),
+        "proxy_url": proxy_url,
+        "hints": {
+            "claude_env": _claude_env_hint(plat, proxy_url),
+            "mitm_ca": _mitm_ca_hint(plat, ca, cer),
+            "cursor_launch": _cursor_launch_hint(plat, ca),
+            "restart_note": (
+                "Apply will write launcher prefs and restart the proxy "
+                + (
+                    "(Dock app stays open)."
+                    if plat == "darwin"
+                    else "(background process keeps running)."
+                )
+            ),
+        },
     }
 
 
-def restart_proxy(config: Any | None = None) -> tuple[bool, str]:
-    """Restart via macOS app scripts when available; otherwise ask for manual restart."""
-    root = project_root(config)
+def _restart_windows(root: Path) -> tuple[bool, str]:
+    start = root / "windows" / "start.ps1"
+    stop = root / "windows" / "stop.ps1"
+    if not start.is_file() or not stop.is_file():
+        # Fall back to repo-root helpers if present.
+        start = root / "start-windows-detached.ps1"
+        stop = root / "stop-windows.ps1"
+    if not start.is_file() or not stop.is_file():
+        return (
+            False,
+            "Saved. Restart manually: .\\windows\\stop.ps1 then .\\windows\\start.ps1 "
+            "(or re-run start-windows.bat).",
+        )
+
+    # Detached restart so this HTTP handler can finish.
+    ps = (
+        f"Start-Sleep -Milliseconds 400; "
+        f"& '{stop}' -Quiet; "
+        f"Start-Sleep -Milliseconds 500; "
+        f"& '{start}'"
+    )
+    creationflags = 0
+    if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    if hasattr(subprocess, "DETACHED_PROCESS"):
+        creationflags |= subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+    subprocess.Popen(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            ps,
+        ],
+        cwd=str(root),
+        start_new_session=True,
+        creationflags=creationflags,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return True, "Restarting proxy with new settings…"
+
+
+def _restart_macos(root: Path) -> tuple[bool, str]:
     # Prefer the installed app's Resources scripts (know ProjectRoot), else repo macos/.
     candidates = [
         Path("/Applications/Token Saver.app/Contents/Resources"),
@@ -265,9 +390,12 @@ def restart_proxy(config: Any | None = None) -> tuple[bool, str]:
             start, stop = s, t
             break
     if not start or not stop:
-        return False, "Saved. Restart the proxy manually to apply (Quit Token Saver from the Dock, then reopen)."
+        return (
+            False,
+            "Saved. Restart the proxy manually to apply "
+            "(Quit Token Saver from the Dock, then reopen).",
+        )
 
-    # Detached restart so this HTTP handler can finish.
     script = f"""
 sleep 0.4
 bash {stop.as_posix()} >/dev/null 2>&1 || true
@@ -280,3 +408,32 @@ bash {start.as_posix()} >/dev/null 2>&1 || true
         cwd=str(root),
     )
     return True, "Restarting proxy with new settings…"
+
+
+def restart_proxy(config: Any | None = None) -> tuple[bool, str]:
+    """Restart via platform start/stop scripts when available."""
+    root = project_root(config)
+    if sys.platform == "win32":
+        return _restart_windows(root)
+    if sys.platform == "darwin":
+        return _restart_macos(root)
+    # Linux: try windows-style names won't work; look for a generic script if present.
+    start = root / "start.sh"
+    stop = root / "stop.sh"
+    if start.is_file() and stop.is_file():
+        script = f"""
+sleep 0.4
+bash {stop.as_posix()} >/dev/null 2>&1 || true
+sleep 0.4
+bash {start.as_posix()} >/dev/null 2>&1 || true
+"""
+        subprocess.Popen(
+            ["/bin/bash", "-c", script],
+            start_new_session=True,
+            cwd=str(root),
+        )
+        return True, "Restarting proxy with new settings…"
+    return (
+        False,
+        "Saved. Restart the proxy manually to apply (stop, then start again).",
+    )

@@ -561,7 +561,7 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
       <div class="panel stat">
         <label>Lifetime requests</label>
         <div class="v in" id="life-volume">0</div>
-        <div class="sub" id="life-volume-sub">0 tok in · 0 stripped</div>
+        <div class="sub" id="life-volume-sub">0 tok requested · 0 stripped</div>
       </div>
     </section>
 
@@ -573,12 +573,12 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
         <div class="sub" id="token-pct">0% removed</div>
       </div>
       <div class="panel stat">
-        <label>Actual $/hr</label>
+        <label>Actual $ saved/hr</label>
         <div class="v pct" id="usd-actual">$0/hr</div>
         <div class="sub" id="usd-actual-sub">per-model rates</div>
       </div>
       <div class="panel stat">
-        <label>Max $/hr</label>
+        <label>Max $ saved/hr</label>
         <div class="v saved" id="usd-max">$0/hr</div>
         <div class="sub" id="usd-max-sub">most expensive model</div>
       </div>
@@ -588,12 +588,12 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
         <div class="sub" id="char-pct">0% removed</div>
       </div>
       <div class="panel stat">
-        <label>Requested</label>
+        <label>Tokens requested</label>
         <div class="v in" id="tokens-in">0 tok</div>
         <div class="sub" id="chars-in">0 chars · 0 req</div>
       </div>
       <div class="panel stat">
-        <label>Forwarded</label>
+        <label>Tokens forwarded</label>
         <div class="v out" id="tokens-out">0 tok</div>
         <div class="sub" id="chars-out">0 chars · 0 stripped</div>
       </div>
@@ -642,7 +642,7 @@ DASHBOARD_HTML_HEAD = r"""<!DOCTYPE html>
       <div class="panel">
         <div class="head">
           <h2>Models used</h2>
-          <span class="hint" id="models-hint">by tokens in</span>
+          <span class="hint" id="models-hint">by tokens requested</span>
         </div>
         <div class="pie-wrap">
           <div id="pie-models" style="height:150px"></div>
@@ -971,7 +971,7 @@ function renderTable(recent) {
   wrap.innerHTML = `<table>
     <thead><tr>
       <th>time</th><th>model</th><th>path</th>
-      <th>in tok/char</th><th>out tok/char</th><th>saved</th><th></th>
+      <th>requested tok/char</th><th>forwarded tok/char</th><th>saved tok/char</th><th></th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
@@ -1143,7 +1143,7 @@ function applyView(d) {
   setText("m-avg-tok-in", fmtFull(avgTokIn));
   setText("m-avg-tok-in-sub", fmtFull(avgTokOut) + " forwarded avg");
   setText("m-avg-tok-saved", fmtFull(avgTokSaved));
-  setText("m-avg-tok-saved-sub", fmtFull(avgCharsSaved) + " chars/req");
+  setText("m-avg-tok-saved-sub", fmtFull(avgCharsSaved) + " chars saved/req");
   setText("m-req-rate", round2(reqPerHour) + "/hr");
   setText("m-req-rate-sub", fmtFull(activeReqs) + " active · " + rateNote);
   setText("m-peak-save", peakSave + "%");
@@ -1178,7 +1178,7 @@ function applyView(d) {
   setText("life-usd-max-sub", "all-time total · ceiling @" + rateModel);
   setText("life-volume", fmtFull(lifeReqs));
   setText("life-volume-sub",
-    fmtFull(lifeTokIn) + " tok in · " + fmtFull(lifeStripped) + " stripped · " + lifeSpan);
+    fmtFull(lifeTokIn) + " tok requested · " + fmtFull(lifeStripped) + " stripped · " + lifeSpan);
   setText("m-life-saved", fmtFull(lifeTokSaved));
   setText("m-life-saved-sub", fmtFull(lifeReqs) + " req · " + lifeSpan);
   setText("m-life-usd-actual", fmtUsd(lifeActual));
@@ -1186,7 +1186,7 @@ function applyView(d) {
   setText("m-life-usd-max", fmtUsd(lifeMax));
   setText("m-life-usd-max-sub", "all-time total · ceiling @" + rateModel);
   setText("m-life-chars", fmtFull(lifeCharSaved));
-  setText("m-life-chars-sub", lifeCharPct + "% of " + fmtFull(lifeCharIn) + " chars");
+  setText("m-life-chars-sub", lifeCharPct + "% of " + fmtFull(lifeCharIn) + " chars requested");
   setText("m-uptime", mins + "m");
   setText("m-uptime-sub", lifeDays > 0 ? lifeDays + "d lifetime span" : "this process");
 }
