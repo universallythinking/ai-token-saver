@@ -14,13 +14,16 @@ Local proxy between **Cursor** / **Claude Code** and the model APIs. Strips bulk
 
 **Easiest:** double-click [`start-windows.bat`](start-windows.bat)
 
-It opens a console, installs deps if needed, asks **Cursor / Claude / Both / Quick start** (same as macOS), dry-run yes/no, **saves prefs** to `.aiproxy_runtime.env`, starts the proxy in the background, and opens the dashboard with the setup wizard (`?setup=1`) unless you chose **Don’t show this again**.
+It opens a console, installs deps if needed, asks **Cursor / Claude / Both / Quick start** (same as macOS), dry-run yes/no, offers the **Start menu / Desktop shortcuts**, **saves prefs** to `.aiproxy_runtime.env`, starts the proxy in the background, and opens the dashboard with the setup wizard (`?setup=1`) unless you chose **Don’t show this again**.
 
 | Action | Command |
 |--------|---------|
 | Start (background) | `powershell -ExecutionPolicy Bypass -File .\windows\start.ps1` |
 | Stop | `powershell -ExecutionPolicy Bypass -File .\windows\stop.ps1` |
 | Guided install | `start-windows.bat` |
+| Shortcuts | `powershell -ExecutionPolicy Bypass -File .\windows\install-shortcuts.ps1` (`-NoDesktop`, `-Remove`) |
+
+**Shortcuts** — the Windows version of the Mac Dock app. **Token Saver** (Start menu + Desktop) starts the proxy with your saved settings and opens the dashboard, or just focuses the dashboard if it is already running; **Stop Token Saver** (Start menu) stops it. They run hidden, so a failed start shows a message box with the last lines of the error log instead of a console you would never see. The shortcuts point at this folder: run `install-shortcuts.ps1` again if you move it.
 
 **Apply & restart** in the browser wizard works on Windows the same as on the Mac Dock app (uses `windows\stop.ps1` + `windows\start.ps1`).
 
@@ -173,6 +176,24 @@ Inside Claude, run `/status` and confirm the base URL is `http://127.0.0.1:8080`
 
 Your API key stays wherever you already keep it (`ANTHROPIC_API_KEY` or Claude login). aiproxy forwards `x-api-key` / `Authorization` unchanged.
 
+An `env` entry in `settings.json` wins over a shell variable. To bypass the proxy for one run without editing the file: `claude --settings '{"env":{"ANTHROPIC_BASE_URL":"https://api.anthropic.com"}}'`.
+
+**What the proxy does with Claude Code traffic.** Anthropic `/v1/messages` requests do not go through the generic strip rules in `config.yaml` → `strip` at all. Those rules edit earlier messages and the system prompt, which breaks Claude Code's prompt cache and its thinking blocks (the API answers 400) and costs more than it saves. Instead the proxy:
+
+- never touches `system`, `tools`, `metadata`, `cache_control`, thinking blocks, assistant turns or any earlier message;
+- makes one lossless edit to the **newest** user message only: a `tool_result` byte-identical to one already in the conversation becomes a short stub pointing at the earlier copy, and that decision is replayed identically on every later request (`logs\claude_state.json`). This keeps the request correct; it is not where the saving is. Measured on one user's traffic (15,728 requests over five days, October 2026) it removed 7 duplicates and saved $0.11;
+- forwards `count_tokens` untouched;
+- prices from the response's `usage` (input, cache read, 5m/1h cache write, output) and shows the result as the **Claude Code** row on the dashboard; every saving figure there is an estimate, labelled as such.
+
+**The two levers that save money** are off until you switch them on, under `claude:` in `config.yaml`:
+
+- **`drop_tool_prefixes`** leaves whole tool families out of every request, by the start of the tool's name. Claude Code describes every tool to the model on every request, and those descriptions sit in the cached prefix that is read back every turn. Measured on the same traffic, 99 tool definitions were about a third of a median prompt and 48 of them were never called once in 21,000 requests. The dashboard's **Tools sent on every turn** table lists each tool with its size and how often it has been called, so you can choose. Change the list between Claude Code sessions, never during one: a changed tool set mid-conversation is a cache miss.
+- **`keep_cache_warm`** keeps a conversation's cache alive across a long break. Claude Code writes 1-hour cache entries; come back after longer and the next message rewrites the whole context at the write rate (about $2 for a 250k-token conversation on Opus 5.5). Switched on, the proxy replays your own last request at 55 minutes with no output asked for, a cache read of a few cents that resets the entry's timer, up to three times. Only 1-hour entries are refreshed: on the measured traffic, refreshing 5-minute entries bought nothing. The replayed request is held in memory with its headers and written nowhere. It is your own request sent again on a timer, and it is spend, which is why it is your decision.
+
+`enabled: false` forwards Claude Code untouched and still measures. Background and reasoning: [CLAUDE-CODE-NOTES.md](CLAUDE-CODE-NOTES.md).
+
+**What this covers.** The `claude` CLI, and any app that lets you set an Anthropic or OpenAI base URL. **Not** the Claude desktop app: its chat talks to claude.ai, and its Code tab ignores `ANTHROPIC_BASE_URL` (checked 5–6 October 2026).
+
 ---
 
 ## 5. Verify it’s working
@@ -264,9 +285,10 @@ If chats send but never reply, turn MITM off (remove `http.proxy*`) and use the 
 
 | What | Where |
 |------|--------|
-| Proxy | `127.0.0.1:8080` |
-| Dashboard | `127.0.0.1:8081` |
-| Config | `config.yaml` |
+| Proxy | `127.0.0.1:8080` (`listen_port` in `config.yaml`) |
+| Dashboard | `127.0.0.1:8081` (`dashboard_port`) |
+| Config | `config.yaml` — the launcher, the shortcuts and the printed instructions all follow the ports set here |
+| Launcher logs / pid | `%LOCALAPPDATA%\TokenSaver\logs\` (`proxy.log`, `proxy.err.log`, `starts.log`), `proxy.pid` |
 | Launcher prefs | `.aiproxy_runtime.env` (saved) / `.aiproxy_session.env` (this run) |
 | Stats (persisted across launches) | `logs\stats.json` |
 | Body dumps | `logs\` |
@@ -333,6 +355,12 @@ claude
 & "$(Get-Location)\.venv\Scripts\python.exe" -m aiproxy --install-hostname
 # → http://tokensaver.local/  and  http://tokensaver.local/v2
 
-# tests
+# shortcuts (Start menu + Desktop; -NoDesktop / -Remove)
+powershell -ExecutionPolicy Bypass -File .\windows\install-shortcuts.ps1
+
+# tests (each prints "ok")
 .\.venv\Scripts\python.exe -m aiproxy.test_stripper
+.\.venv\Scripts\python.exe -m aiproxy.test_set_content
+.\.venv\Scripts\python.exe -m aiproxy.test_claude_path
+.\.venv\Scripts\python.exe -m aiproxy.test_windows_scripts
 ```
